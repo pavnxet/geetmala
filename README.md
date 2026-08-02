@@ -4,6 +4,10 @@
 सीधे Archive.org (या किसी भी public MP3 URL) से स्ट्रीम करता है, और बिना
 दोहराव वाली स्मार्ट शफ़ल चलाता है।
 
+> ⚠️ **Disclaimer:** This project only indexes publicly available data and links. It does **not** host, store, or upload any audio files or copyrighted content on this repository or server. All audio media is streamed directly from external, publicly accessible third-party sources (e.g., Archive.org).
+
+Made with 💖 by [pavnxet](https://github.com/pavnxet)
+
 ## फ़ाइलें
 
 ```

@@ -11,8 +11,8 @@
   /* 1. CONFIG                                                          */
   /* ------------------------------------------------------------------ */
   const CONFIG = {
-    // Password: 1555
-    PASSWORD_HASH: '2ae7ffb0ec4d1bccf01b12233aaced6949cc5808a4a173315ee508abbbaaaa1c',
+    // Password: pavneet
+    PASSWORD_HASH: '74d332f35f91c3fa8261160a0b14bb1a3b1d745fa2df8a5476b96ef873013235',
     CSV_PATH: 'data/songs.csv',
     PAGE_SIZE: 80,
     AUTOSAVE_MS: 3000,
