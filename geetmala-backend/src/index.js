@@ -1,9 +1,53 @@
-import { createClient } from 'https://esm.sh/@libsql/client@0.14.0/web';
+// Zero-dependency Turso REST HTTP Client for Cloudflare Workers
+async function turso(env, statements) {
+  const baseUrl = (env.TURSO_DATABASE_URL || '').replace(/^libsql:\/\//, 'https://').replace(/\/$/, '');
+  const pipelineUrl = `${baseUrl}/v2/pipeline`;
 
-function getDb(env) {
-  return createClient({
-    url: env.TURSO_DATABASE_URL,
-    authToken: env.TURSO_AUTH_TOKEN,
+  const requests = statements.map((s) => {
+    const args = (s.args || []).map((a) => {
+      if (a === null || a === undefined) return { type: 'null' };
+      if (typeof a === 'number') {
+        return Number.isInteger(a) ? { type: 'integer', value: String(a) } : { type: 'float', value: a };
+      }
+      return { type: 'text', value: String(a) };
+    });
+
+    return {
+      type: 'execute',
+      stmt: { sql: s.sql, args },
+    };
+  });
+
+  requests.push({ type: 'close' });
+
+  const res = await fetch(pipelineUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${env.TURSO_AUTH_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ requests }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Turso HTTP error ${res.status}: ${errText}`);
+  }
+
+  const data = await res.json();
+  return data.results.map((r) => {
+    if (r.type === 'error') throw new Error(r.error?.message || 'Turso Query Error');
+    const resObj = r.response?.result;
+    if (!resObj) return { rows: [] };
+    const cols = (resObj.cols || []).map((c) => c.name);
+    const rows = (resObj.rows || []).map((rowValues) => {
+      const row = {};
+      rowValues.forEach((v, idx) => {
+        row[cols[idx]] = v ? (v.value !== undefined ? v.value : v) : null;
+      });
+      return row;
+    });
+    return { rows };
   });
 }
 
@@ -33,7 +77,6 @@ export default {
     }
 
     const url = new URL(request.url);
-    const db = getDb(env);
     const now = Date.now();
 
     try {
@@ -44,40 +87,27 @@ export default {
 
       const deviceId = url.searchParams.get('device_id') || body?.device_id;
       if (deviceId) {
-        await db.execute({
+        await turso(env, [{
           sql: `INSERT INTO devices (device_id, created_at, last_seen_at) VALUES (?, ?, ?)
                 ON CONFLICT(device_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
           args: [deviceId, now, now],
-        });
+        }]);
       }
 
       // --- GET /api/state ---
       if (url.pathname === '/api/state' && request.method === 'GET') {
-        const favsRes = deviceId ? await db.execute({
-          sql: 'SELECT track_id FROM favorites WHERE device_id = ? ORDER BY favorited_at DESC',
-          args: [deviceId],
-        }) : { rows: [] };
-
-        const lastStateRes = deviceId ? await db.execute({
-          sql: 'SELECT last_track_id, last_position_sec, shuffle_enabled, repeat_mode, volume, playback_speed FROM device_state WHERE device_id = ?',
-          args: [deviceId],
-        }) : { rows: [] };
-
-        const topRes = await db.execute({
-          sql: 'SELECT track_id, play_count, total_seconds_listened FROM track_stats ORDER BY play_count DESC LIMIT 20',
-          args: [],
-        });
-
-        const recentRes = deviceId ? await db.execute({
-          sql: 'SELECT track_id, played_at FROM play_events WHERE device_id = ? ORDER BY played_at DESC LIMIT 20',
-          args: [deviceId],
-        }) : { rows: [] };
+        const [favsRes, lastStateRes, topRes, recentRes] = await turso(env, [
+          { sql: 'SELECT track_id FROM favorites WHERE device_id = ? ORDER BY favorited_at DESC', args: [deviceId || ''] },
+          { sql: 'SELECT last_track_id, last_position_sec, shuffle_enabled, repeat_mode, volume, playback_speed FROM device_state WHERE device_id = ?', args: [deviceId || ''] },
+          { sql: 'SELECT track_id, play_count, total_seconds_listened FROM track_stats ORDER BY play_count DESC LIMIT 20', args: [] },
+          { sql: 'SELECT track_id, played_at FROM play_events WHERE device_id = ? ORDER BY played_at DESC LIMIT 20', args: [deviceId || ''] },
+        ]);
 
         return json({
-          favorites: favsRes.rows.map((r) => r.track_id),
-          last: lastStateRes.rows[0] || null,
-          top: topRes.rows,
-          recent: recentRes.rows,
+          favorites: (favsRes.rows || []).map((r) => r.track_id),
+          last: (lastStateRes.rows && lastStateRes.rows[0]) || null,
+          top: topRes.rows || [],
+          recent: recentRes.rows || [],
         }, 200, env);
       }
 
@@ -87,15 +117,15 @@ export default {
           return json({ error: 'missing device_id or track_id' }, 400, env);
         }
         if (body.favorite) {
-          await db.execute({
+          await turso(env, [{
             sql: 'INSERT OR IGNORE INTO favorites (device_id, track_id, favorited_at) VALUES (?, ?, ?)',
             args: [body.device_id, body.track_id, now],
-          });
+          }]);
         } else {
-          await db.execute({
+          await turso(env, [{
             sql: 'DELETE FROM favorites WHERE device_id = ? AND track_id = ?',
             args: [body.device_id, body.track_id],
-          });
+          }]);
         }
         return json({ success: true }, 200, env);
       }
@@ -140,7 +170,7 @@ export default {
           args: [body.device_id, body.track_id, now],
         });
 
-        await db.batch(statements);
+        await turso(env, statements);
         return json({ success: true }, 200, env);
       }
 
@@ -149,7 +179,7 @@ export default {
         if (!body?.device_id) {
           return json({ error: 'missing device_id' }, 400, env);
         }
-        await db.execute({
+        await turso(env, [{
           sql: `INSERT INTO device_state (device_id, last_track_id, last_position_sec, shuffle_enabled, repeat_mode, volume, playback_speed, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_id) DO UPDATE SET
@@ -170,18 +200,18 @@ export default {
             body.playback_speed ?? 1.0,
             now,
           ],
-        });
+        }]);
         return json({ success: true }, 200, env);
       }
 
       // --- GET /api/most-played ---
       if (url.pathname === '/api/most-played' && request.method === 'GET') {
         const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 20));
-        const res = await db.execute({
+        const [topRes] = await turso(env, [{
           sql: 'SELECT track_id, play_count, total_seconds_listened FROM track_stats ORDER BY play_count DESC LIMIT ?',
           args: [limit],
-        });
-        return json({ top: res.rows }, 200, env);
+        }]);
+        return json({ top: topRes.rows || [] }, 200, env);
       }
 
       return json({ error: 'not found' }, 404, env);
