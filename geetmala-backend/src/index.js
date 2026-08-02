@@ -1,3 +1,12 @@
+function normalizeEnv(rawEnv) {
+  const env = {};
+  if (!rawEnv) return env;
+  for (const k of Object.keys(rawEnv)) {
+    env[k.trim()] = rawEnv[k];
+  }
+  return env;
+}
+
 // ============================================================
 // Geetmala Cloudflare Worker — Full Rewrite
 // Zero-dependency · Native fetch · Turso REST /v2/pipeline
@@ -9,7 +18,7 @@ async function turso(env, statements) {
   const token  = env.TURSO_AUTH_TOKEN  || '';
 
   if (!rawUrl) throw new Error('TURSO_DATABASE_URL not set');
-  if (!token)  throw new Error('TURSO_AUTH_TOKEN not set. Keys in env: [' + Object.keys(env).join(', ') + ']');
+  if (!token)  throw new Error('TURSO_AUTH_TOKEN not set');
 
   // Convert libsql:// to https://
   const baseUrl = rawUrl
@@ -90,7 +99,8 @@ function jsonResp(data, status, env) {
 
 // ── Main Worker ──────────────────────────────────────────────
 export default {
-  async fetch(request, env) {
+  async fetch(request, rawEnv) {
+    const env = normalizeEnv(rawEnv);
     // CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(env) });
