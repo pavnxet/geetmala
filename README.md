@@ -16,7 +16,8 @@ Made with 💖 by [pavnxet](https://github.com/pavnxet)
 
 ## ✨ Features
 
-- 🌐 **Public Access**: Open to everyone—no login or password required.
+- 🌐 **Public Access**: Open to everyone—no password required.
+- 👤 **User Accounts & Cloud Sync**: Enter or switch to any custom User ID / Username (e.g. `pavneet` or `music_lover`) to sync your personal favorites, listening history, and playback position across all your phones, laptops, and browsers—or log in directly using `?user=YOUR_ID` links!
 - 🔀 **Smart Non-Repeating Shuffle**: Plays through your entire song library without repeating any song until every track has been played.
 - ⚡ **Seamless Background Preloader**: Monitors active audio buffering and pre-loads the upcoming song in the background *only when* the current song finishes downloading—delivering 0-pause playback.
 - 💖 **Favorites & Likes**: Heart toggle buttons in both the Now Playing panel and playlist rows.

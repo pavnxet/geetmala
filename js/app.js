@@ -44,7 +44,7 @@
   const $ = (id) => document.getElementById(id);
 
   const dom = {
-    app: $('app'), themeBtn: $('themeBtn'), iconSun: $('iconSun'), iconMoon: $('iconMoon'), themeLabel: $('themeLabel'), libraryStatus: $('libraryStatus'),
+    app: $('app'), userBtn: $('userBtn'), userLabel: $('userLabel'), userModal: $('userModal'), userModalBackdrop: $('userModalBackdrop'), userModalClose: $('userModalClose'), userForm: $('userForm'), userIdInput: $('userIdInput'), copyUserLinkBtn: $('copyUserLinkBtn'), randomUserBtn: $('randomUserBtn'), themeBtn: $('themeBtn'), iconSun: $('iconSun'), iconMoon: $('iconMoon'), themeLabel: $('themeLabel'), libraryStatus: $('libraryStatus'),
 
     disc: $('vinylDisc'), discInitial: $('discInitial'), tonearm: $('tonearm'),
     trackYearAlbum: $('trackYearAlbum'), trackTitle: $('trackTitle'), trackArtist: $('trackArtist'), likeBtn: $('likeBtn'),
@@ -223,12 +223,65 @@
   }
 
   function getDeviceId() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlUser = (params.get('user') || params.get('user_id') || '').trim();
+      if (urlUser) {
+        const cleanUrlUser = urlUser.replace(/[^a-zA-Z0-9_.-]/g, '');
+        if (cleanUrlUser) {
+          safeSet(KEYS.DEVICE_ID, cleanUrlUser);
+        }
+      }
+    } catch { /* ignore */ }
+
     let id = safeGet(KEYS.DEVICE_ID);
     if (!id) {
-      id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'dev_' + Math.random().toString(36).substring(2, 15);
+      id = 'user_' + Math.random().toString(36).substring(2, 9);
       safeSet(KEYS.DEVICE_ID, id);
     }
+    updateUserLabelUI(id);
     return id;
+  }
+
+  function updateUserLabelUI(id) {
+    if (dom.userLabel) {
+      dom.userLabel.textContent = id || 'User ID';
+    }
+  }
+
+  async function switchUserId(rawNewId) {
+    const cleanId = (rawNewId || '').trim().replace(/[^a-zA-Z0-9_.-]/g, '');
+    if (!cleanId) return;
+
+    safeSet(KEYS.DEVICE_ID, cleanId);
+    updateUserLabelUI(cleanId);
+
+    // Reset local state for new user
+    state.favorites.clear();
+    state.trackStats.clear();
+    persistFavorites();
+
+    // Sync cloud state for new User ID
+    await syncBackendState();
+
+    updateLikeUI();
+    renderQueue();
+    if (state.currentView === 'favorites') applySearch(dom.searchInput.value);
+
+    showToast({ message: `Logged in as User ID: <strong>${escapeHtml(cleanId)}</strong>`, timeout: 4000 });
+  }
+
+  function openUserModal() {
+    if (!dom.userModal) return;
+    const currentId = getDeviceId();
+    if (dom.userIdInput) dom.userIdInput.value = currentId;
+    dom.userModal.classList.remove('hidden');
+    if (dom.userIdInput) dom.userIdInput.focus();
+  }
+
+  function closeUserModal() {
+    if (!dom.userModal) return;
+    dom.userModal.classList.add('hidden');
   }
 
   async function apiCall(path, options = {}) {
@@ -1074,8 +1127,47 @@
   });
 
   /* ------------------------------------------------------------------ */
+  /* USER MODAL LISTENERS                                               */
+  /* ------------------------------------------------------------------ */
+  if (dom.userBtn) dom.userBtn.addEventListener('click', openUserModal);
+  if (dom.userModalClose) dom.userModalClose.addEventListener('click', closeUserModal);
+  if (dom.userModalBackdrop) dom.userModalBackdrop.addEventListener('click', closeUserModal);
+
+  if (dom.userForm) {
+    dom.userForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const val = dom.userIdInput?.value;
+      if (val) {
+        switchUserId(val);
+        closeUserModal();
+      }
+    });
+  }
+
+  if (dom.copyUserLinkBtn) {
+    dom.copyUserLinkBtn.addEventListener('click', () => {
+      const currentId = getDeviceId();
+      const url = new URL(window.location.href);
+      url.searchParams.set('user', currentId);
+      navigator.clipboard.writeText(url.toString()).then(() => {
+        showToast({ message: 'Profile link copied to clipboard!', timeout: 3000 });
+      }).catch(() => {
+        showToast({ message: `Profile URL: ${url.toString()}`, timeout: 6000 });
+      });
+    });
+  }
+
+  if (dom.randomUserBtn) {
+    dom.randomUserBtn.addEventListener('click', () => {
+      const randId = 'user_' + Math.random().toString(36).substring(2, 9);
+      if (dom.userIdInput) dom.userIdInput.value = randId;
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
   /* 15. BOOT                                                            */
   /* ------------------------------------------------------------------ */
   initTheme();
+  getDeviceId();
   bootLibrary();
 })();
