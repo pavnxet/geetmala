@@ -256,17 +256,14 @@
     safeSet(KEYS.DEVICE_ID, cleanId);
     updateUserLabelUI(cleanId);
 
-    // Reset local state for new user
-    state.favorites.clear();
-    state.trackStats.clear();
-    persistFavorites();
-
-    // Sync cloud state for new User ID
-    await syncBackendState();
-
+    // Restore this user's local favorites & update UI immediately
+    restoreFavorites();
     updateLikeUI();
-    renderQueue();
+    updateAllRowLikes();
     if (state.currentView === 'favorites') applySearch(dom.searchInput.value);
+
+    // Sync cloud state for new User ID from backend
+    await syncBackendState();
 
     showToast({ message: `Logged in as User ID: <strong>${escapeHtml(cleanId)}</strong>`, timeout: 4000 });
   }
@@ -432,9 +429,13 @@
     safeSet(KEYS.PLAYED, JSON.stringify([...state.playedIds]));
   }
 
+  function getFavoritesKey() {
+    return KEYS.FAVORITES + '_' + getDeviceId();
+  }
+
   function restoreFavorites() {
     try {
-      const arr = JSON.parse(safeGet(KEYS.FAVORITES) || '[]');
+      const arr = JSON.parse(safeGet(getFavoritesKey()) || safeGet(KEYS.FAVORITES) || '[]');
       state.favorites = new Set(arr.filter((id) => state.byId.has(id)));
     } catch {
       state.favorites = new Set();
@@ -442,7 +443,7 @@
   }
 
   function persistFavorites() {
-    safeSet(KEYS.FAVORITES, JSON.stringify([...state.favorites]));
+    safeSet(getFavoritesKey(), JSON.stringify([...state.favorites]));
   }
 
   function toggleFavorite(trackId) {
@@ -517,9 +518,10 @@
     const data = await apiCall(`/api/state?device_id=${getDeviceId()}`);
     if (!data) return;
     if (Array.isArray(data.favorites)) {
-      data.favorites.forEach((id) => state.favorites.add(id));
+      state.favorites = new Set(data.favorites.filter((id) => state.byId.has(id)));
       persistFavorites();
       updateLikeUI();
+      updateAllRowLikes();
       if (state.currentView === 'favorites') applySearch(dom.searchInput.value);
     }
     if (Array.isArray(data.top)) {
@@ -944,6 +946,15 @@
         const likeBtn = row.querySelector('.row__like');
         if (likeBtn) likeBtn.classList.toggle('liked', state.favorites.has(trackId));
       }
+    }
+  }
+
+  function updateAllRowLikes() {
+    const rows = dom.listRows.children;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const likeBtn = row.querySelector('.row__like');
+      if (likeBtn) likeBtn.classList.toggle('liked', state.favorites.has(row.dataset.id));
     }
   }
 
