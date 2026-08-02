@@ -209,6 +209,18 @@
     return sha256SyncFallback(text);
   }
 
+  function safeGet(key) {
+    try { return localStorage.getItem(key); } catch { return null; }
+  }
+
+  function safeSet(key, value) {
+    try { localStorage.setItem(key, value); } catch { /* ignore */ }
+  }
+
+  function safeRemove(key) {
+    try { localStorage.removeItem(key); } catch { /* ignore */ }
+  }
+
   function getDeviceId() {
     let id = safeGet(KEYS.DEVICE_ID);
     if (!id) {
