@@ -19,6 +19,8 @@
     SEEK_STEP_KEY: 5,      // keyboard ← / → per the spec
     SEEK_STEP_BTN: 10,     // ⏪ / ⏩ buttons per the spec
     VOLUME_STEP: 0.05,
+    API_BASE: '', // Set your Cloudflare Worker URL when deployed e.g. 'https://geetmala-backend.<subdomain>.workers.dev'
+    API_KEY: 'geetmala_secret_key_2026',
   };
 
   const KEYS = {
@@ -30,6 +32,9 @@
     SHUFFLE: 'geetmala_shuffle_enabled',
     REPEAT: 'geetmala_repeat_mode',
     SPEED: 'geetmala_speed',
+    DEVICE_ID: 'geetmala_device_id',
+    FAVORITES: 'geetmala_favorites',
+    TRACK_STATS: 'geetmala_track_stats',
   };
 
   /* ------------------------------------------------------------------ */
@@ -42,7 +47,7 @@
     app: $('app'), logoutBtn: $('logoutBtn'), libraryStatus: $('libraryStatus'),
 
     disc: $('vinylDisc'), discInitial: $('discInitial'), tonearm: $('tonearm'),
-    trackYearAlbum: $('trackYearAlbum'), trackTitle: $('trackTitle'), trackArtist: $('trackArtist'),
+    trackYearAlbum: $('trackYearAlbum'), trackTitle: $('trackTitle'), trackArtist: $('trackArtist'), likeBtn: $('likeBtn'),
 
     seekbar: $('seekbar'), timeCurrent: $('timeCurrent'), timeDuration: $('timeDuration'),
 
@@ -55,7 +60,7 @@
     volumeSlider: $('volumeSlider'), speedSelect: $('speedSelect'),
     queueStatus: $('queueStatus'),
 
-    searchInput: $('searchInput'), listCount: $('listCount'),
+    searchInput: $('searchInput'), listTabs: $('listTabs'), listCount: $('listCount'),
     listScroll: $('listScroll'), listRows: $('listRows'), listEmpty: $('listEmpty'), listSentinel: $('listSentinel'),
 
     toastHost: $('toastHost'),
@@ -89,6 +94,12 @@
     shuffle: false,
     repeatMode: 'off',      // 'off' | 'one' | 'all'
     lastSaveAt: 0,
+
+    favorites: new Set(),   // track IDs favorited
+    trackStats: new Map(),  // track_id -> { play_count, total_seconds }
+    currentView: 'all',     // 'all' | 'favorites' | 'top'
+    sessionListenedSec: 0,  // listened seconds accumulator for active track
+    lastTimeupdateSec: 0,
   };
 
   /* ------------------------------------------------------------------ */
@@ -123,9 +134,32 @@
     return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
   }
 
-  function safeGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
-  function safeSet(key, val) { try { localStorage.setItem(key, val); } catch { /* storage full/blocked */ } }
-  function safeRemove(key) { try { localStorage.removeItem(key); } catch { /* ignore */ } }
+  function getDeviceId() {
+    let id = safeGet(KEYS.DEVICE_ID);
+    if (!id) {
+      id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'dev_' + Math.random().toString(36).substring(2, 15);
+      safeSet(KEYS.DEVICE_ID, id);
+    }
+    return id;
+  }
+
+  async function apiCall(path, options = {}) {
+    if (!CONFIG.API_BASE) return null;
+    try {
+      const res = await fetch(CONFIG.API_BASE + path, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Geetmala-Key': CONFIG.API_KEY,
+          ...(options.headers || {}),
+        },
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
 
   function showToast({ message, actions = [], timeout = 6000 }) {
     const el = document.createElement('div');
@@ -222,8 +256,11 @@
         dom.libraryStatus.textContent = `${state.allTracks.length} गीत उपलब्ध`;
         restorePreferences();
         restorePlayedIds();
+        restoreFavorites();
+        restoreTrackStats();
         renderList(true);
         maybeOfferResume();
+        syncBackendState();
       },
       error: () => {
         dom.libraryStatus.textContent = 'songs.csv लोड नहीं हो सका';
@@ -262,8 +299,106 @@
     updateQueueStatus();
   }
 
-  function persistPlayedIds() {
-    safeSet(KEYS.PLAYED, JSON.stringify([...state.playedIds]));
+  function restoreFavorites() {
+    try {
+      const arr = JSON.parse(safeGet(KEYS.FAVORITES) || '[]');
+      state.favorites = new Set(arr.filter((id) => state.byId.has(id)));
+    } catch {
+      state.favorites = new Set();
+    }
+  }
+
+  function persistFavorites() {
+    safeSet(KEYS.FAVORITES, JSON.stringify([...state.favorites]));
+  }
+
+  function toggleFavorite(trackId) {
+    if (!trackId) return;
+    const isFav = state.favorites.has(trackId);
+    if (isFav) {
+      state.favorites.delete(trackId);
+    } else {
+      state.favorites.add(trackId);
+    }
+    persistFavorites();
+    updateLikeUI();
+    updateRowLikes(trackId);
+
+    apiCall('/api/favorite', {
+      method: 'POST',
+      body: JSON.stringify({
+        device_id: getDeviceId(),
+        track_id: trackId,
+        favorite: !isFav,
+      }),
+    });
+
+    if (state.currentView === 'favorites') {
+      applySearch(dom.searchInput.value);
+    }
+  }
+
+  function restoreTrackStats() {
+    try {
+      const obj = JSON.parse(safeGet(KEYS.TRACK_STATS) || '{}');
+      state.trackStats = new Map(Object.entries(obj));
+    } catch {
+      state.trackStats = new Map();
+    }
+  }
+
+  function persistTrackStats() {
+    const obj = {};
+    state.trackStats.forEach((val, key) => { obj[key] = val; });
+    safeSet(KEYS.TRACK_STATS, JSON.stringify(obj));
+  }
+
+  function flushPlayEvent({ completed = false, source = 'manual' } = {}) {
+    if (!state.currentTrack || state.sessionListenedSec < 0.5) return;
+
+    const trackId = state.currentTrack.id;
+    const listenedSec = state.sessionListenedSec;
+    state.sessionListenedSec = 0;
+
+    if (listenedSec >= 5) {
+      const stat = state.trackStats.get(trackId) || { play_count: 0, total_seconds: 0 };
+      stat.play_count = (stat.play_count || 0) + 1;
+      stat.total_seconds = (stat.total_seconds || 0) + listenedSec;
+      state.trackStats.set(trackId, stat);
+      persistTrackStats();
+    }
+
+    apiCall('/api/play-event', {
+      method: 'POST',
+      body: JSON.stringify({
+        device_id: getDeviceId(),
+        track_id: trackId,
+        played_seconds: listenedSec,
+        completed: completed ? 1 : 0,
+        source: source,
+      }),
+    });
+  }
+
+  async function syncBackendState() {
+    const data = await apiCall(`/api/state?device_id=${getDeviceId()}`);
+    if (!data) return;
+    if (Array.isArray(data.favorites)) {
+      data.favorites.forEach((id) => state.favorites.add(id));
+      persistFavorites();
+      updateLikeUI();
+      if (state.currentView === 'favorites') applySearch(dom.searchInput.value);
+    }
+    if (Array.isArray(data.top)) {
+      data.top.forEach((item) => {
+        if (item.track_id) {
+          const stat = state.trackStats.get(item.track_id) || { play_count: 0, total_seconds: 0 };
+          stat.play_count = Math.max(stat.play_count, item.play_count || 0);
+          state.trackStats.set(item.track_id, stat);
+        }
+      });
+      persistTrackStats();
+    }
   }
 
   function persistPlaybackPosition() {
@@ -389,11 +524,17 @@
   function loadTrack(track, { resumeAt = 0, autoplay = false, pushHistory = false } = {}) {
     if (!track) return;
 
+    if (state.currentTrack) {
+      flushPlayEvent({ completed: false, source: 'change' });
+    }
+
     const isPreloaded = nextPreloadedTrack && nextPreloadedTrack.id === track.id;
 
     state.currentTrack = track;
     currentTrackFullyLoaded = false;
     nextPreloadedTrack = null;
+    state.sessionListenedSec = 0;
+    state.lastTimeupdateSec = resumeAt || 0;
 
     if (isPreloaded && nextAudio.src) {
       audio.src = track.url;
@@ -414,6 +555,7 @@
     }
 
     renderNowPlaying();
+    updateLikeUI();
     updateActiveRowIndicator();
     updateMediaSessionMetadata();
 
@@ -552,15 +694,38 @@
     }
     dom.timeCurrent.textContent = formatTime(audio.currentTime);
 
+    if (state.isPlaying && audio.currentTime > state.lastTimeupdateSec) {
+      const delta = audio.currentTime - state.lastTimeupdateSec;
+      if (delta > 0 && delta < 2) {
+        state.sessionListenedSec += delta;
+      }
+    }
+    state.lastTimeupdateSec = audio.currentTime;
+
     const now = Date.now();
     if (now - state.lastSaveAt > CONFIG.AUTOSAVE_MS) {
       state.lastSaveAt = now;
       persistPlaybackPosition();
+      apiCall('/api/state-sync', {
+        method: 'POST',
+        body: JSON.stringify({
+          device_id: getDeviceId(),
+          last_track_id: state.currentTrack?.id || null,
+          last_position_sec: audio.currentTime || 0,
+          shuffle_enabled: state.shuffle ? 1 : 0,
+          repeat_mode: state.repeatMode,
+          volume: audio.volume,
+          playback_speed: audio.playbackRate,
+        }),
+      });
     }
   });
 
   audio.addEventListener('ended', () => {
-    if (state.currentTrack) markPlayed(state.currentTrack);
+    if (state.currentTrack) {
+      markPlayed(state.currentTrack);
+      flushPlayEvent({ completed: true, source: 'auto' });
+    }
     if (state.repeatMode === 'one') {
       audio.currentTime = 0;
       audio.play().catch(() => {});
@@ -615,10 +780,38 @@
   }
 
   function applySearch(query) {
-    const q = query.trim().toLowerCase();
-    state.filtered = !q ? state.allTracks : state.allTracks.filter((t) =>
+    const q = (query || dom.searchInput.value || '').trim().toLowerCase();
+    let baseList = state.allTracks;
+
+    if (state.currentView === 'favorites') {
+      baseList = state.allTracks.filter((t) => state.favorites.has(t.id));
+    } else if (state.currentView === 'top') {
+      baseList = [...state.allTracks].sort((a, b) => {
+        const countA = state.trackStats.get(a.id)?.play_count || 0;
+        const countB = state.trackStats.get(b.id)?.play_count || 0;
+        return countB - countA;
+      });
+    }
+
+    state.filtered = !q ? baseList : baseList.filter((t) =>
       t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q) || t.album.toLowerCase().includes(q));
     renderList(true);
+  }
+
+  function updateLikeUI() {
+    const isLiked = !!(state.currentTrack && state.favorites.has(state.currentTrack.id));
+    if (dom.likeBtn) dom.likeBtn.setAttribute('aria-pressed', String(isLiked));
+  }
+
+  function updateRowLikes(trackId) {
+    const rows = dom.listRows.children;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.dataset.id === trackId) {
+        const likeBtn = row.querySelector('.row__like');
+        if (likeBtn) likeBtn.classList.toggle('liked', state.favorites.has(trackId));
+      }
+    }
   }
 
   function renderList(reset = false) {
@@ -668,7 +861,17 @@
     dur.className = 'row__duration';
     dur.textContent = track.duration || '';
 
-    row.append(idxCell, main, year, dur);
+    const likeBtn = document.createElement('button');
+    likeBtn.className = 'row__like' + (state.favorites.has(track.id) ? ' liked' : '');
+    likeBtn.type = 'button';
+    likeBtn.title = 'पसंदीदा';
+    likeBtn.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 17.25s-6.25-4-7.5-7.25c-1-2.6.5-5.5 3.25-6 2.25-.4 3.75 1 4.25 1.75C10.5 5 12 3.6 14.25 4c2.75.5 4.25 3.4 3.25 6-1.25 3.25-7.5 7.25-7.5 7.25Z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round"/></svg>';
+    likeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleFavorite(track.id);
+    });
+
+    row.append(idxCell, main, year, dur, likeBtn);
     return row;
   }
 
@@ -751,6 +954,19 @@
   dom.muteBtn.addEventListener('click', toggleMute);
   dom.volumeSlider.addEventListener('input', (e) => setVolume(Number(e.target.value)));
   dom.speedSelect.addEventListener('change', (e) => setSpeed(Number(e.target.value)));
+  dom.likeBtn?.addEventListener('click', () => {
+    if (state.currentTrack) toggleFavorite(state.currentTrack.id);
+  });
+
+  dom.listTabs?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tab');
+    if (!btn) return;
+    const view = btn.dataset.view;
+    if (view === state.currentView) return;
+    state.currentView = view;
+    Array.from(dom.listTabs.children).forEach((b) => b.classList.toggle('tab--active', b === btn));
+    applySearch(dom.searchInput.value);
+  });
 
   /* ------------------------------------------------------------------ */
   /* 14. KEYBOARD SHORTCUTS                                              */
@@ -767,6 +983,7 @@
       case 'ArrowUp': e.preventDefault(); setVolume(audio.volume + CONFIG.VOLUME_STEP); break;
       case 'ArrowDown': e.preventDefault(); setVolume(audio.volume - CONFIG.VOLUME_STEP); break;
       case 'm': case 'M': toggleMute(); break;
+      case 'l': case 'L': if (state.currentTrack) toggleFavorite(state.currentTrack.id); break;
       case 'n': case 'N': goNext(); break;
       case 's': case 'S': toggleShuffle(); break;
       case 'r': case 'R': cycleRepeat(); break;

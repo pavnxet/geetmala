@@ -1,0 +1,7 @@
+name = "geetmala-backend"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+[vars]
+TURSO_DATABASE_URL = "libsql://geetmala-qijubevadi.aws-ap-south-1.turso.io"
+ALLOWED_ORIGIN = "*"

@@ -1,0 +1,17 @@
+{
+  "name": "geetmala-backend",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker backend for Geetmala music player with Turso libSQL database",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.85.0"
+  }
+}

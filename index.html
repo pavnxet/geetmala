@@ -103,7 +103,14 @@
       </div>
 
       <div class="track-meta">
-        <p class="track-meta__eyebrow" id="trackYearAlbum">—</p>
+        <div class="track-meta__head">
+          <p class="track-meta__eyebrow" id="trackYearAlbum">—</p>
+          <button id="likeBtn" class="track-meta__like" type="button" title="पसंदीदा (L)" aria-pressed="false">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M10 17.25s-6.25-4-7.5-7.25c-1-2.6.5-5.5 3.25-6 2.25-.4 3.75 1 4.25 1.75C10.5 5 12 3.6 14.25 4c2.75.5 4.25 3.4 3.25 6-1.25 3.25-7.5 7.25-7.5 7.25Z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
         <h2 class="track-meta__title" id="trackTitle">कोई गीत नहीं चुना गया</h2>
         <p class="track-meta__artist" id="trackArtist">Geetmala से एक गीत चुनें</p>
       </div>
@@ -172,6 +179,11 @@
         <div class="search">
           <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="m14 14 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
           <input type="search" id="searchInput" placeholder="गीत, गायक या एल्बम खोजें…" aria-label="गीत खोजें">
+        </div>
+        <div class="list-tabs" id="listTabs">
+          <button type="button" class="tab tab--active" data-view="all">सब</button>
+          <button type="button" class="tab" data-view="favorites">पसंदीदा</button>
+          <button type="button" class="tab" data-view="top">सबसे ज़्यादा सुने</button>
         </div>
         <span class="list-count" id="listCount">0 गीत</span>
       </div>
