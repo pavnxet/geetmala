@@ -44,8 +44,7 @@
   const $ = (id) => document.getElementById(id);
 
   const dom = {
-    gate: $('gate'), gateForm: $('gateForm'), gatePassword: $('gatePassword'), gateError: $('gateError'),
-    app: $('app'), logoutBtn: $('logoutBtn'), themeBtn: $('themeBtn'), iconSun: $('iconSun'), iconMoon: $('iconMoon'), themeLabel: $('themeLabel'), libraryStatus: $('libraryStatus'),
+    app: $('app'), themeBtn: $('themeBtn'), iconSun: $('iconSun'), iconMoon: $('iconMoon'), themeLabel: $('themeLabel'), libraryStatus: $('libraryStatus'),
 
     disc: $('vinylDisc'), discInitial: $('discInitial'), tonearm: $('tonearm'),
     trackYearAlbum: $('trackYearAlbum'), trackTitle: $('trackTitle'), trackArtist: $('trackArtist'), likeBtn: $('likeBtn'),
@@ -277,52 +276,6 @@
     return dismiss;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* 5. AUTH                                                            */
-  /* ------------------------------------------------------------------ */
-  function isAuthed() { return safeGet(KEYS.AUTH) === 'true'; }
-
-  function unlock() {
-    safeSet(KEYS.AUTH, 'true');
-    dom.gate.classList.add('hidden');
-    dom.app.classList.remove('hidden');
-    bootLibrary();
-  }
-
-  function logout() {
-    safeRemove(KEYS.AUTH);
-    audio.pause();
-    location.reload();
-  }
-
-  dom.gateForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    dom.gateError.textContent = '';
-    const value = (dom.gatePassword.value || '').trim();
-    if (!value) return;
-
-    let hash = '';
-    try {
-      hash = await sha256Hex(value);
-    } catch (err) {
-      console.warn('sha256Hex warning:', err);
-    }
-
-    const isMatch = hash === CONFIG.PASSWORD_HASH || value.toLowerCase() === 'pavneet' || value === '1555';
-
-    if (isMatch) {
-      unlock();
-    } else {
-      dom.gateError.textContent = 'Incorrect password. Please try again.';
-      dom.gateError.classList.remove('shake');
-      void dom.gateError.offsetWidth;
-      dom.gateError.classList.add('shake');
-      dom.gatePassword.value = '';
-      dom.gatePassword.focus();
-    }
-  });
-
-  dom.logoutBtn.addEventListener('click', logout);
 
   /* ------------------------------------------------------------------ */
   /* 6. DATA LOADING                                                    */
@@ -1124,12 +1077,5 @@
   /* 15. BOOT                                                            */
   /* ------------------------------------------------------------------ */
   initTheme();
-
-  if (isAuthed()) {
-    dom.gate.classList.add('hidden');
-    dom.app.classList.remove('hidden');
-    bootLibrary();
-  } else {
-    dom.gatePassword.focus();
-  }
+  bootLibrary();
 })();

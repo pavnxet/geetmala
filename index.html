@@ -25,46 +25,8 @@
   <div class="grain"></div>
 </div>
 
-<!-- ============ GATE: password screen ============ -->
-<main id="gate" class="gate" aria-live="polite">
-  <div class="gate__card">
-    <div class="gate__mark">
-      <svg viewBox="0 0 64 64" class="gate__disc" aria-hidden="true">
-        <circle cx="32" cy="32" r="30" class="disc__body"/>
-        <circle cx="32" cy="32" r="30" class="disc__ring"/>
-        <circle cx="32" cy="32" r="21" class="disc__groove"/>
-        <circle cx="32" cy="32" r="14" class="disc__groove"/>
-        <circle cx="32" cy="32" r="7"  class="disc__label"/>
-        <circle cx="32" cy="32" r="1.6" class="disc__pin"/>
-      </svg>
-    </div>
-    <p class="gate__eyebrow">One-Time Lock · Continuous Playback</p>
-    <h1 class="gate__title">Geetmala</h1>
-    <p class="gate__tagline">Classic Radio Nostalgia — Your Music, Your Rhythm.</p>
-
-    <form id="gateForm" class="gate__form" autocomplete="off">
-      <label for="gatePassword" class="sr-only">Password</label>
-      <input
-        id="gatePassword"
-        type="password"
-        class="gate__input"
-        placeholder="Enter password"
-        autocomplete="current-password"
-        inputmode="text"
-        required
-      >
-      <button type="submit" class="gate__submit">
-        <span>Unlock</span>
-        <svg viewBox="0 0 20 20" class="gate__submit-icon" aria-hidden="true"><path d="M4 10h11M11 5l5 5-5 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-    </form>
-    <p id="gateError" class="gate__error" role="alert"></p>
-    <p class="watermark watermark--gate">Made with 💖 by <a href="https://github.com/pavnxet" target="_blank" rel="noopener noreferrer">pavnxet</a></p>
-  </div>
-</main>
-
-<!-- ============ PLAYER: main app, hidden until unlocked ============ -->
-<div id="app" class="app hidden">
+<!-- ============ PLAYER: main app ============ -->
+<div id="app" class="app">
 
   <header class="topbar">
     <div class="topbar__brand">
@@ -88,10 +50,6 @@
           <path d="M17.2 11.5A7.5 7.5 0 1 1 8.5 2.8a6 6 0 1 0 8.7 8.7Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
         </svg>
         <span id="themeLabel">Light</span>
-      </button>
-      <button id="logoutBtn" class="topbar__logout" type="button">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M13 14l4-4-4-4M7 10h10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span>Lock</span>
       </button>
     </div>
   </header>

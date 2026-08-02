@@ -1,7 +1,5 @@
 # Geetmala — Vintage Web Music Player
 
-> 🔑 **Webpage Unlock Password:** `pavneet`
-
 A lightweight, 100% client-side web music player with a dark brass/amber glassmorphic UI. Parses track libraries from CSV metadata, streams directly from public audio URLs (such as Archive.org), and features smart non-repeating shuffle, background pre-buffering, favorites/likes, and optional Cloudflare Worker + Turso DB cloud synchronization.
 
 > ⚠️ **Disclaimer:** This project only indexes publicly available data and links. It does **not** host, store, or upload any audio files or copyrighted content on this repository or server. All audio media is streamed directly from external, publicly accessible third-party sources (such as Archive.org).
@@ -12,14 +10,13 @@ Made with 💖 by [pavnxet](https://github.com/pavnxet)
 
 ## 🌟 Live Demo
 
-- **Live Application**: [https://pavnxet.github.io/geetmala/](https://pavnxet.github.io/geetmala/)
-- **Unlock Password**: `pavneet`
+- **Live Application**: [https://pavnxet.github.io/geetmala/](https://pavnxet.github.io/geetmala/) (Open to everyone)
 
 ---
 
 ## ✨ Features
 
-- 🔐 **Password Gate**: Soft client-side entry gate using SHA-256 password verification with automatic Web Crypto / JavaScript fallback.
+- 🌐 **Public Access**: Open to everyone—no login or password required.
 - 🔀 **Smart Non-Repeating Shuffle**: Plays through your entire song library without repeating any song until every track has been played.
 - ⚡ **Seamless Background Preloader**: Monitors active audio buffering and pre-loads the upcoming song in the background *only when* the current song finishes downloading—delivering 0-pause playback.
 - 💖 **Favorites & Likes**: Heart toggle buttons in both the Now Playing panel and playlist rows.
@@ -44,7 +41,7 @@ Made with 💖 by [pavnxet](https://github.com/pavnxet)
 
 ```
 geetmala/
-├── index.html                  # Main application layout & password gate UI
+├── index.html                  # Main application layout & player UI
 ├── css/style.css               # Dark glassmorphic vintage theme (Lora & Sora fonts)
 ├── js/app.js                   # Client logic (Audio engine, preloader, search, sync)
 ├── data/songs.csv              # Track library database (ID, Title, Album, Artist, Year, Duration, URL)
@@ -81,19 +78,6 @@ id,title,album,artist,year,duration,url
 - **`url`**: Direct public streaming URL for the MP3 file
 
 3. **Save & Push**: Commit and push `data/songs.csv` to GitHub. The app will automatically load the new tracks into your library and search!
-
-### 2. Changing the Password
-To change the unlock password, generate a SHA-256 hash of your desired password and update `CONFIG.PASSWORD_HASH` in [`js/app.js`](file:///e:/Codes/geetmala/js/app.js):
-
-**Using Python:**
-```bash
-python -c "import hashlib; print(hashlib.sha256(b'YOUR_NEW_PASSWORD').hexdigest())"
-```
-
-Then update line 15 in `js/app.js`:
-```javascript
-PASSWORD_HASH: 'YOUR_GENERATED_SHA256_HASH',
-```
 
 ---
 
