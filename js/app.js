@@ -64,6 +64,12 @@
   const audio = new Audio();
   audio.preload = 'metadata';
 
+  const nextAudio = new Audio();
+  nextAudio.preload = 'auto';
+
+  let nextPreloadedTrack = null;
+  let currentTrackFullyLoaded = false;
+
   /* ------------------------------------------------------------------ */
   /* 3. STATE                                                           */
   /* ------------------------------------------------------------------ */
@@ -302,9 +308,10 @@
     dom.queueStatus.textContent = `${state.playedIds.size} / ${state.allTracks.length} गीत सुने गए`;
   }
 
-  function pickRandomUnplayed() {
+  function pickRandomUnplayed({ peek = false } = {}) {
     let pool = remainingQueue();
     if (pool.length === 0) {
+      if (peek) return state.allTracks[0] || null;
       state.playedIds.clear();
       persistPlayedIds();
       updateQueueStatus();
@@ -336,13 +343,69 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* PRELOAD ENGINE                                                     */
+  /* ------------------------------------------------------------------ */
+  function peekNextTrack() {
+    if (!state.allTracks.length) return null;
+    if (state.historyPointer < state.history.length - 1) {
+      return state.byId.get(state.history[state.historyPointer + 1]);
+    }
+    if (state.repeatMode === 'one') {
+      return state.currentTrack;
+    }
+    return state.shuffle ? pickRandomUnplayed({ peek: true }) : pickNextSequential();
+  }
+
+  function preloadNextTrack() {
+    const next = peekNextTrack();
+    if (!next) return;
+    if (nextPreloadedTrack && nextPreloadedTrack.id === next.id) return;
+
+    nextPreloadedTrack = next;
+    nextAudio.src = next.url;
+    nextAudio.load();
+  }
+
+  function checkCurrentTrackFullyLoaded() {
+    if (currentTrackFullyLoaded || !state.currentTrack) return;
+
+    let isFullyBuffered = audio.readyState === 4;
+    if (!isFullyBuffered && audio.duration > 0 && audio.buffered && audio.buffered.length > 0) {
+      const end = audio.buffered.end(audio.buffered.length - 1);
+      if (end >= audio.duration - 1.5) {
+        isFullyBuffered = true;
+      }
+    }
+
+    if (isFullyBuffered) {
+      currentTrackFullyLoaded = true;
+      preloadNextTrack();
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
   /* 9. AUDIO ENGINE                                                     */
   /* ------------------------------------------------------------------ */
   function loadTrack(track, { resumeAt = 0, autoplay = false, pushHistory = false } = {}) {
     if (!track) return;
+
+    const isPreloaded = nextPreloadedTrack && nextPreloadedTrack.id === track.id;
+
     state.currentTrack = track;
-    audio.src = track.url;
-    audio.currentTime = resumeAt || 0;
+    currentTrackFullyLoaded = false;
+    nextPreloadedTrack = null;
+
+    if (isPreloaded && nextAudio.src) {
+      audio.src = track.url;
+      audio.currentTime = resumeAt || 0;
+    } else {
+      audio.src = track.url;
+      audio.currentTime = resumeAt || 0;
+    }
+
+    nextAudio.pause();
+    nextAudio.removeAttribute('src');
+    nextAudio.load();
 
     if (pushHistory) {
       state.history = state.history.slice(0, state.historyPointer + 1);
@@ -378,7 +441,14 @@
       loadTrack(t, { autoplay: true });
       return;
     }
-    const next = state.shuffle ? pickRandomUnplayed() : pickNextSequential();
+
+    let next = null;
+    if (nextPreloadedTrack) {
+      next = nextPreloadedTrack;
+    } else {
+      next = state.shuffle ? pickRandomUnplayed() : pickNextSequential();
+    }
+
     if (!next) { audio.pause(); return; } // end of library, repeat is off
     loadTrack(next, { autoplay: true, pushHistory: true });
   }
@@ -416,12 +486,20 @@
     state.shuffle = !state.shuffle;
     safeSet(KEYS.SHUFFLE, String(state.shuffle));
     dom.shuffleBtn.setAttribute('aria-pressed', String(state.shuffle));
+    if (currentTrackFullyLoaded) {
+      nextPreloadedTrack = null;
+      preloadNextTrack();
+    }
   }
 
   function cycleRepeat() {
     state.repeatMode = { off: 'all', all: 'one', one: 'off' }[state.repeatMode];
     safeSet(KEYS.REPEAT, state.repeatMode);
     applyRepeatUI();
+    if (currentTrackFullyLoaded) {
+      nextPreloadedTrack = null;
+      preloadNextTrack();
+    }
   }
 
   function applyRepeatUI() {
@@ -436,6 +514,9 @@
   }
 
   // --- audio element events ---
+  audio.addEventListener('canplaythrough', checkCurrentTrackFullyLoaded);
+  audio.addEventListener('progress', checkCurrentTrackFullyLoaded);
+
   audio.addEventListener('play', () => {
     state.isPlaying = true;
     dom.iconPlay.classList.add('hidden');
