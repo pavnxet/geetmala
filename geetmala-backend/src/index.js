@@ -76,7 +76,7 @@ function toTursoArg(v) {
   if (typeof v === 'number') {
     if (isNaN(v) || !isFinite(v))    return { type: 'null' };
     if (Number.isInteger(v))         return { type: 'integer', value: String(v) };
-    return { type: 'float', value: String(v) };
+    return { type: 'float', value: v };
   }
   return { type: 'text', value: String(v) };
 }
