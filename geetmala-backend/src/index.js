@@ -14,8 +14,10 @@ async function turso(env, statements) {
   const requests = statements.map((s) => {
     const args = (s.args || []).map((a) => {
       if (a === null || a === undefined) return { type: 'null' };
+      if (typeof a === 'boolean') return { type: 'integer', value: a ? '1' : '0' };
       if (typeof a === 'number') {
-        return Number.isInteger(a) ? { type: 'integer', value: String(a) } : { type: 'float', value: a };
+        if (isNaN(a)) return { type: 'null' };
+        return Number.isInteger(a) ? { type: 'integer', value: String(a) } : { type: 'float', value: String(a) };
       }
       return { type: 'text', value: String(a) };
     });
