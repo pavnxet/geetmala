@@ -422,6 +422,10 @@
     updateQueueStatus();
   }
 
+  function persistPlayedIds() {
+    safeSet(KEYS.PLAYED, JSON.stringify([...state.playedIds]));
+  }
+
   function restoreFavorites() {
     try {
       const arr = JSON.parse(safeGet(KEYS.FAVORITES) || '[]');
