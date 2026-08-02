@@ -1,7 +1,15 @@
 // Zero-dependency Turso REST HTTP Client for Cloudflare Workers
 async function turso(env, statements) {
-  const baseUrl = (env.TURSO_DATABASE_URL || '').replace(/^libsql:\/\//, 'https://').replace(/\/$/, '');
-  const pipelineUrl = `${baseUrl}/v2/pipeline`;
+  let dbUrl = env.TURSO_DATABASE_URL || '';
+  if (!dbUrl) {
+    console.warn('TURSO_DATABASE_URL is missing in environment variables');
+    return statements.map(() => ({ rows: [] }));
+  }
+
+  if (!dbUrl.startsWith('http://') && !dbUrl.startsWith('https://')) {
+    dbUrl = 'https://' + dbUrl.replace(/^libsql:\/\//, '');
+  }
+  const pipelineUrl = `${dbUrl.replace(/\/$/, '')}/v2/pipeline`;
 
   const requests = statements.map((s) => {
     const args = (s.args || []).map((a) => {
@@ -23,7 +31,7 @@ async function turso(env, statements) {
   const res = await fetch(pipelineUrl, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${env.TURSO_AUTH_TOKEN}`,
+      'Authorization': `Bearer ${env.TURSO_AUTH_TOKEN || ''}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ requests }),
@@ -86,12 +94,16 @@ export default {
       }
 
       const deviceId = url.searchParams.get('device_id') || body?.device_id;
-      if (deviceId) {
-        await turso(env, [{
-          sql: `INSERT INTO devices (device_id, created_at, last_seen_at) VALUES (?, ?, ?)
-                ON CONFLICT(device_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
-          args: [deviceId, now, now],
-        }]);
+      if (deviceId && env.TURSO_DATABASE_URL) {
+        try {
+          await turso(env, [{
+            sql: `INSERT INTO devices (device_id, created_at, last_seen_at) VALUES (?, ?, ?)
+                  ON CONFLICT(device_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+            args: [deviceId, now, now],
+          }]);
+        } catch (e) {
+          console.warn('Device tracking error:', e);
+        }
       }
 
       // --- GET /api/state ---
