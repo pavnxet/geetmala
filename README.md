@@ -58,13 +58,27 @@ geetmala/
 
 ## ⚙️ Configuration & Customization
 
-### 1. Adding Your Own Songs
-Update [`data/songs.csv`](file:///e:/Codes/geetmala/data/songs.csv) using the following CSV column format:
+### 1. 🎵 Adding New Songs
+All tracks in Geetmala are managed inside [`data/songs.csv`](file:///e:/Codes/geetmala/data/songs.csv). To add new songs:
+
+1. **Get Direct Audio URL**: Upload or host your `.mp3` file on a public server (such as [Archive.org](https://archive.org) or GitHub Releases) to get a direct streaming link.
+2. **Edit `data/songs.csv`**: Open [`data/songs.csv`](file:///e:/Codes/geetmala/data/songs.csv) and append a new line at the bottom using this CSV format:
 
 ```csv
 id,title,album,artist,year,duration,url
-1,"Jane Na Nazar","Geetmala Vol 01","Lata Mangeshkar",1951,"03:15","https://archive.org/download/.../0101.mp3"
+645,"Song Title","Album Name","Artist Name",2026,"03:45","https://direct-link-to-your-song.mp3"
 ```
+
+#### CSV Field Details:
+- **`id`**: Unique number (`645`, `646`, etc.)
+- **`title`**: Name of the song
+- **`album`**: Album name (or `""` if none)
+- **`artist`**: Singer / Artist name
+- **`year`**: Release year (e.g. `1975`)
+- **`duration`**: Song length in `MM:SS` format (e.g. `"03:45"`)
+- **`url`**: Direct public streaming URL for the MP3 file
+
+3. **Save & Push**: Commit and push `data/songs.csv` to GitHub. The app will automatically load the new tracks into your library and search!
 
 ### 2. Changing the Password
 To change the unlock password, generate a SHA-256 hash of your desired password and update `CONFIG.PASSWORD_HASH` in [`js/app.js`](file:///e:/Codes/geetmala/js/app.js):
