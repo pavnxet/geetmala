@@ -1,4 +1,11 @@
-import { getDb } from './db.js';
+import { createClient } from 'https://esm.sh/@libsql/client@0.14.0/web';
+
+function getDb(env) {
+  return createClient({
+    url: env.TURSO_DATABASE_URL,
+    authToken: env.TURSO_AUTH_TOKEN,
+  });
+}
 
 function cors(env) {
   return {

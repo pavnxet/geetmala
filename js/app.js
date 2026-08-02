@@ -19,7 +19,7 @@
     SEEK_STEP_KEY: 5,      // keyboard ← / → per the spec
     SEEK_STEP_BTN: 10,     // ⏪ / ⏩ buttons per the spec
     VOLUME_STEP: 0.05,
-    API_BASE: '', // Set your Cloudflare Worker URL when deployed e.g. 'https://geetmala-backend.<subdomain>.workers.dev'
+    API_BASE: 'https://geetmala.pavneet1804.workers.dev',
     API_KEY: 'geetmala_secret_key_2026',
   };
 
