@@ -1,99 +1,96 @@
-# Geetmala — निजी वेब म्यूज़िक प्लेयर
+# Geetmala — Vintage Web Music Player
 
-एक बैकएंड-रहित (100% client-side) म्यूज़िक प्लेयर। `songs.csv` से गाने पढ़ता है,
-सीधे Archive.org (या किसी भी public MP3 URL) से स्ट्रीम करता है, और बिना
-दोहराव वाली स्मार्ट शफ़ल चलाता है।
+A lightweight, 100% client-side web music player with a dark brass/amber glassmorphic UI. Parses track libraries from CSV metadata, streams directly from public audio URLs (such as Archive.org), and features smart non-repeating shuffle, background pre-buffering, favorites/likes, and optional Cloudflare Worker + Turso DB cloud synchronization.
 
-> ⚠️ **Disclaimer:** This project only indexes publicly available data and links. It does **not** host, store, or upload any audio files or copyrighted content on this repository or server. All audio media is streamed directly from external, publicly accessible third-party sources (e.g., Archive.org).
+> ⚠️ **Disclaimer:** This project only indexes publicly available data and links. It does **not** host, store, or upload any audio files or copyrighted content on this repository or server. All audio media is streamed directly from external, publicly accessible third-party sources (such as Archive.org).
 
 Made with 💖 by [pavnxet](https://github.com/pavnxet)
 
-## फ़ाइलें
+---
+
+## 🌟 Live Demo
+
+- **Live Application**: [https://pavnxet.github.io/geetmala/](https://pavnxet.github.io/geetmala/)
+- **Unlock Password**: `pavneet`
+
+---
+
+## ✨ Features
+
+- 🔐 **Password Gate**: Soft client-side entry gate using SHA-256 password verification with automatic Web Crypto / JavaScript fallback.
+- 🔀 **Smart Non-Repeating Shuffle**: Plays through your entire song library without repeating any song until every track has been played.
+- ⚡ **Seamless Background Preloader**: Monitors active audio buffering and pre-loads the upcoming song in the background *only when* the current song finishes downloading—delivering 0-pause playback.
+- 💖 **Favorites & Likes**: Heart toggle buttons in both the Now Playing panel and playlist rows.
+- 📊 **Playlist Filtering & Most-Played View**: Tab filters for `[ All ]`, `[ Favorites ]`, and `[ Most Played ]` (ranks songs by your actual listening time).
+- ☁️ **Cloud Synchronization**: Optional backend sync via Cloudflare Workers and Turso (libSQL) database for multi-device favorites, stats, and playback state.
+- 📶 **100% Offline / Local Fallback**: Graceful degradation—if offline or if the backend API is unreachable, the app functions flawlessly using `localStorage`.
+- 📱 **Media Session API**: Full mobile lock screen and notification shade playback controls.
+- ⌨️ **Keyboard Shortcuts**:
+  - `Space` — Play / Pause
+  - `←` / `→` — Seek 5 seconds back / forward
+  - `↑` / `↓` — Adjust volume
+  - `M` — Mute / Unmute
+  - `L` — Toggle Favorite / Liked status
+  - `N` — Next track
+  - `S` — Toggle Smart Shuffle
+  - `R` — Cycle Repeat Mode (Off → All → One)
+- 💾 **State Auto-Save**: Automatically remembers last played track, time position, volume, playback speed (0.75x–2.0x), and queue history.
+
+---
+
+## 📁 Repository Structure
 
 ```
 geetmala/
-├─ index.html        पासवर्ड गेट + प्लेयर UI
-├─ css/style.css      डार्क ग्लासमॉर्फिक थीम (brass/amber gramophone अंदाज़)
-├─ js/app.js          पूरा लॉजिक — auth, CSV parsing, ऑडियो इंजन, शफ़ल, persistence
-├─ data/songs.csv     सैंपल डेटा (नीचे देखें — इसे अपनी असली लिस्ट से बदलें)
-└─ README.md          यह फ़ाइल
+├── index.html                  # Main application layout & password gate UI
+├── css/style.css               # Dark glassmorphic vintage theme (Lora & Sora fonts)
+├── js/app.js                   # Client logic (Audio engine, preloader, search, sync)
+├── data/songs.csv              # Track library database (ID, Title, Album, Artist, Year, Duration, URL)
+├── geetmala-backend/           # Cloudflare Worker & Turso Database Backend
+│   ├── src/index.js            # Zero-dependency native fetch REST API worker
+│   ├── schema.sql              # Turso database SQL schema
+│   ├── wrangler.toml           # Cloudflare Worker configuration
+│   └── package.json            # Dependencies configuration
+└── README.md                   # Documentation
 ```
 
-## 1. अपना गाना डेटा डालें
+---
 
-`data/songs.csv` में अभी 10 सैंपल पंक्तियाँ हैं जिनके `url` जान-बूझकर
-placeholder हैं (`REPLACE_WITH_YOUR_FILENAME`) — ये असल में नहीं बजेंगे।
-इसे अपनी असली 10 GB लिस्ट से बदल दें, इसी कॉलम फॉर्मेट में:
+## ⚙️ Configuration & Customization
+
+### 1. Adding Your Own Songs
+Update [`data/songs.csv`](file:///e:/Codes/geetmala/data/songs.csv) using the following CSV column format:
 
 ```csv
 id,title,album,artist,year,duration,url
 1,"Jane Na Nazar","Geetmala Vol 01","Lata Mangeshkar",1951,"03:15","https://archive.org/download/.../0101.mp3"
 ```
 
-- `id` अनोखा होना चाहिए (नंबर या टेक्स्ट, कोई भी)।
-- `duration` को `mm:ss` (या `h:mm:ss`) में रखें — यही playlist में दिखेगा।
-- हज़ारों पंक्तियाँ ठीक चलेंगी; लिस्ट स्क्रॉल पर ही (~80 rows के बैच में) रेंडर होती है।
+### 2. Changing the Password
+To change the unlock password, generate a SHA-256 hash of your desired password and update `CONFIG.PASSWORD_HASH` in [`js/app.js`](file:///e:/Codes/geetmala/js/app.js):
 
-## 2. पासवर्ड बदलें
-
-डिफ़ॉल्ट पासवर्ड **`geetmala@2026`** है। इसे बदलने के लिए नया SHA-256 हैश
-बनाएं और `js/app.js` की `CONFIG.PASSWORD_HASH` में पेस्ट करें:
-
-**टर्मिनल से (Node या Python जो भी उपलब्ध हो):**
+**Using Python:**
 ```bash
-python3 -c "import hashlib;print(hashlib.sha256('आपका-नया-पासवर्ड'.encode()).hexdigest())"
+python -c "import hashlib; print(hashlib.sha256(b'YOUR_NEW_PASSWORD').hexdigest())"
 ```
 
-**या ब्राउज़र कंसोल से:**
-```js
-crypto.subtle.digest('SHA-256', new TextEncoder().encode('आपका-नया-पासवर्ड'))
-  .then(b => console.log([...new Uint8Array(b)].map(x => x.toString(16).padStart(2,'0')).join('')))
+Then update line 15 in `js/app.js`:
+```javascript
+PASSWORD_HASH: 'YOUR_GENERATED_SHA256_HASH',
 ```
 
-> ⚠️ **ईमानदार चेतावनी:** यह एक क्लाइंट-साइड सॉफ़्ट गेट है, असली सुरक्षा नहीं —
-> हैश `app.js` में सबको दिखता है, और कोई भी ब्राउज़र DevTools से पढ़ सकता है।
-> यह किसी को आपकी निजी लाइब्रेरी में "बिना सोचे-समझे" घुसने से रोकने के लिए है,
-> संवेदनशील डेटा छुपाने के लिए नहीं।
+---
 
-पासवर्ड सत्यापन `crypto.subtle` (Web Crypto API) पर निर्भर है, जो सिर्फ़
-**secure context** (HTTPS या `localhost`) में काम करता है। Deploy किए गए
-Vercel/Netlify/GitHub Pages लिंक पर यह अपने आप ठीक चलेगा।
+## 🚀 Cloudflare Worker & Turso Backend Setup
 
-## 3. लोकल टेस्ट
+If you want multi-device cloud synchronization for favorites and play counts:
 
-`file://` से सीधे खोलने पर कुछ ब्राउज़र CSV को CORS की वजह से लोड नहीं करते।
-एक छोटा लोकल सर्वर चलाना सबसे आसान है:
+1. **Turso Database**: Create a database on [turso.tech](https://turso.tech), run `geetmala-backend/schema.sql` in the SQL Editor, and copy your Database URL and Auth Token.
+2. **Cloudflare Worker**: Create a Worker on [dash.cloudflare.com](https://dash.cloudflare.com), paste the code from [`geetmala-backend/src/index.js`](file:///e:/Codes/geetmala/geetmala-backend/src/index.js), and set your secrets (`API_KEY`, `TURSO_AUTH_TOKEN`, `TURSO_DATABASE_URL`).
+3. **Connect Frontend**: Set your Worker URL in `CONFIG.API_BASE` in [`js/app.js`](file:///e:/Codes/geetmala/js/app.js).
 
-```bash
-cd geetmala
-python3 -m http.server 8000
-# फिर खोलें: http://localhost:8000
-```
+---
 
-## 4. डिप्लॉय (मुफ़्त होस्टिंग)
+## 📄 License
 
-पूरा `geetmala/` फ़ोल्डर इनमें से किसी पर भी drag-and-drop / push करें:
-- **Netlify** — netlify.com पर फ़ोल्डर ड्रैग करें
-- **Vercel** — `vercel deploy` (कोई बिल्ड स्टेप नहीं चाहिए)
-- **GitHub Pages** — repo push करके Settings → Pages में root चुनें
-
-## फ़ीचर सूची
-
-- 🔐 पासवर्ड गेट (SHA-256, secure-context आवश्यक)
-- 🎛️ Play/Pause, Next/Prev, ⏩⏪ 10s, वॉल्यूम + म्यूट, स्पीड (0.75×–2×)
-- 🔁 Repeat: Off → All → One (साइकल)
-- 🔀 स्मार्ट शफ़ल — जब तक पूरी लाइब्रेरी न सुन ली जाए, कोई गाना नहीं दोहराता;
-  पूरा होने पर टोस्ट दिखा कर अपने आप रीसेट होता है
-- ⏱️ Seekbar + समय, इंस्टेंट सर्च, स्क्रॉल पर incremental रेंडरिंग
-- 💾 आख़िरी गाना/समय/वॉल्यूम/मोड सब `localStorage` में सेव, हर 3s ऑटो-सेव
-- ⏯️ खोलने पर "पिछला गीत X पर छोड़ा था — Resume / Start Fresh" टोस्ट
-- 📲 Media Session API — लॉक स्क्रीन/नोटिफिकेशन कंट्रोल्स (मोबाइल)
-- ⌨️ शॉर्टकट: `Space` play/pause · `←/→` 5s सीक · `↑/↓` वॉल्यूम ·
-  `M` म्यूट · `N` next · `S` शफ़ल · `R` रिपीट
-
-## नोट
-
-- कोई भी बिल्ड टूल नहीं चाहिए — शुद्ध HTML/CSS/JS। `PapaParse` एक CDN
-  script टैग से लोड होता है (`index.html` में)।
-- ऑटोप्ले ब्राउज़र पॉलिसी के कारण पहला play हमेशा किसी user click/tap से
-  शुरू होना चाहिए — कोड इसे संभालता है।
+This project is open-source and free to use for personal and non-commercial music library management.
