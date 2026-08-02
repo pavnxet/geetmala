@@ -35,6 +35,7 @@
     DEVICE_ID: 'geetmala_device_id',
     FAVORITES: 'geetmala_favorites',
     TRACK_STATS: 'geetmala_track_stats',
+    THEME: 'geetmala_theme',
   };
 
   /* ------------------------------------------------------------------ */
@@ -44,7 +45,7 @@
 
   const dom = {
     gate: $('gate'), gateForm: $('gateForm'), gatePassword: $('gatePassword'), gateError: $('gateError'),
-    app: $('app'), logoutBtn: $('logoutBtn'), libraryStatus: $('libraryStatus'),
+    app: $('app'), logoutBtn: $('logoutBtn'), themeBtn: $('themeBtn'), iconSun: $('iconSun'), iconMoon: $('iconMoon'), themeLabel: $('themeLabel'), libraryStatus: $('libraryStatus'),
 
     disc: $('vinylDisc'), discInitial: $('discInitial'), tonearm: $('tonearm'),
     trackYearAlbum: $('trackYearAlbum'), trackTitle: $('trackTitle'), trackArtist: $('trackArtist'), likeBtn: $('likeBtn'),
@@ -100,6 +101,7 @@
     currentView: 'all',     // 'all' | 'favorites' | 'top'
     sessionListenedSec: 0,  // listened seconds accumulator for active track
     lastTimeupdateSec: 0,
+    theme: 'dark',          // 'dark' | 'light'
   };
 
   /* ------------------------------------------------------------------ */
@@ -311,7 +313,7 @@
     if (isMatch) {
       unlock();
     } else {
-      dom.gateError.textContent = 'गलत पासवर्ड। दोबारा कोशिश करें।';
+      dom.gateError.textContent = 'Incorrect password. Please try again.';
       dom.gateError.classList.remove('shake');
       void dom.gateError.offsetWidth;
       dom.gateError.classList.add('shake');
@@ -326,7 +328,7 @@
   /* 6. DATA LOADING                                                    */
   /* ------------------------------------------------------------------ */
   function bootLibrary() {
-    dom.libraryStatus.textContent = 'लाइब्रेरी लोड हो रही है…';
+    dom.libraryStatus.textContent = 'Loading track library...';
     Papa.parse(CONFIG.CSV_PATH, {
       download: true,
       header: true,
@@ -348,7 +350,7 @@
         state.allTracks.forEach((t) => state.byId.set(t.id, t));
         state.filtered = state.allTracks;
 
-        dom.libraryStatus.textContent = `${state.allTracks.length} गीत उपलब्ध`;
+        dom.libraryStatus.textContent = `${state.allTracks.length} tracks available`;
         restorePreferences();
         restorePlayedIds();
         restoreFavorites();
@@ -358,8 +360,8 @@
         syncBackendState();
       },
       error: () => {
-        dom.libraryStatus.textContent = 'songs.csv लोड नहीं हो सका';
-        showToast({ message: `<strong>data/songs.csv</strong> नहीं मिली या पढ़ी नहीं जा सकी। कृपया फ़ाइल जांचें।`, timeout: 0, actions: [{ label: 'ठीक है' }] });
+        dom.libraryStatus.textContent = 'Failed to load songs.csv';
+        showToast({ message: `<strong>data/songs.csv</strong> could not be loaded. Please check the file.`, timeout: 0, actions: [{ label: 'OK' }] });
       },
     });
   }
@@ -367,6 +369,32 @@
   /* ------------------------------------------------------------------ */
   /* 7. PREFERENCES / PERSISTENCE                                       */
   /* ------------------------------------------------------------------ */
+  function applyTheme(theme) {
+    state.theme = theme;
+    document.documentElement.setAttribute('data-theme', theme);
+    safeSet(KEYS.THEME, theme);
+    if (dom.iconSun && dom.iconMoon && dom.themeLabel) {
+      const isLight = theme === 'light';
+      dom.iconSun.classList.toggle('hidden', !isLight);
+      dom.iconMoon.classList.toggle('hidden', isLight);
+      dom.themeLabel.textContent = isLight ? 'Dark' : 'Light';
+    }
+  }
+
+  function initTheme() {
+    const saved = safeGet(KEYS.THEME);
+    if (saved === 'light' || saved === 'dark') {
+      applyTheme(saved);
+    } else {
+      const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      applyTheme(prefersLight ? 'light' : 'dark');
+    }
+  }
+
+  function toggleTheme() {
+    applyTheme(state.theme === 'light' ? 'dark' : 'light');
+  }
+
   function restorePreferences() {
     const vol = parseFloat(safeGet(KEYS.VOLUME));
     audio.volume = isNaN(vol) ? 0.8 : Math.min(1, Math.max(0, vol));
@@ -510,7 +538,7 @@
     const track = state.byId.get(lastId);
     showToast({
       timeout: 0,
-      message: `पिछला गीत <strong>${escapeHtml(track.title)}</strong> ${formatTime(lastTime)} पर छोड़ा गया था।`,
+      message: `Previous track <strong>${escapeHtml(track.title)}</strong> was paused at ${formatTime(lastTime)}.`,
       actions: [
         { label: 'Start Fresh', onClick: () => {} },
         {
@@ -535,7 +563,7 @@
   }
 
   function updateQueueStatus() {
-    dom.queueStatus.textContent = `${state.playedIds.size} / ${state.allTracks.length} गीत सुने गए`;
+    dom.queueStatus.textContent = `${state.playedIds.size} / ${state.allTracks.length} tracks played`;
   }
 
   function pickRandomUnplayed({ peek = false } = {}) {
@@ -545,7 +573,7 @@
       state.playedIds.clear();
       persistPlayedIds();
       updateQueueStatus();
-      showToast({ message: 'आपने सभी गीत सुन लिए हैं! प्ले-हिस्ट्री रीसेट की जा रही है।' });
+      showToast({ message: 'You have listened to all tracks! Resetting play queue.' });
       pool = state.allTracks;
     }
     // Don't hand back the track that's currently playing if there's a choice.
@@ -861,7 +889,7 @@
     const t = state.currentTrack;
     if (!t) return;
     dom.trackTitle.textContent = t.title;
-    dom.trackArtist.textContent = t.artist || 'अज्ञात गायक';
+    dom.trackArtist.textContent = t.artist || 'Unknown Artist';
     dom.trackYearAlbum.textContent = [t.album, t.year].filter(Boolean).join(' · ') || '—';
     dom.discInitial.textContent = (t.title || '?').trim().charAt(0).toUpperCase() || '?';
     dom.timeDuration.textContent = t.duration ? formatTime(t.durationSeconds) : '00:00';
@@ -914,7 +942,7 @@
       dom.listRows.innerHTML = '';
       state.renderCount = 0;
     }
-    dom.listCount.textContent = `${state.filtered.length} गीत`;
+    dom.listCount.textContent = `${state.filtered.length} tracks`;
     dom.listEmpty.classList.toggle('hidden', state.filtered.length !== 0);
 
     const nextSlice = state.filtered.slice(state.renderCount, state.renderCount + CONFIG.PAGE_SIZE);
@@ -959,7 +987,7 @@
     const likeBtn = document.createElement('button');
     likeBtn.className = 'row__like' + (state.favorites.has(track.id) ? ' liked' : '');
     likeBtn.type = 'button';
-    likeBtn.title = 'पसंदीदा';
+    likeBtn.title = 'Toggle Favorite';
     likeBtn.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 17.25s-6.25-4-7.5-7.25c-1-2.6.5-5.5 3.25-6 2.25-.4 3.75 1 4.25 1.75C10.5 5 12 3.6 14.25 4c2.75.5 4.25 3.4 3.25 6-1.25 3.25-7.5 7.25-7.5 7.25Z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round"/></svg>';
     likeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1053,6 +1081,8 @@
     if (state.currentTrack) toggleFavorite(state.currentTrack.id);
   });
 
+  dom.themeBtn?.addEventListener('click', toggleTheme);
+
   dom.listTabs?.addEventListener('click', (e) => {
     const btn = e.target.closest('.tab');
     if (!btn) return;
@@ -1089,6 +1119,8 @@
   /* ------------------------------------------------------------------ */
   /* 15. BOOT                                                            */
   /* ------------------------------------------------------------------ */
+  initTheme();
+
   if (isAuthed()) {
     dom.gate.classList.add('hidden');
     dom.app.classList.remove('hidden');

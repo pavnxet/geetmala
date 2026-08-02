@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="hi">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Geetmala — पुराने गीतों का सफ़र</title>
-<meta name="description" content="Geetmala — आपकी निजी संगीत लाइब्रेरी, बिना दोहराव वाले स्मार्ट शफ़ल के साथ।">
+<title>Geetmala — Vintage Web Music Player</title>
+<meta name="description" content="Geetmala — Personal vintage web music player with smart non-repeating shuffle, background pre-buffering, and cloud sync.">
 <meta name="theme-color" content="#0d0a08">
 
 <!-- Fonts: Lora for the label/title voice, Sora for the control voice -->
@@ -18,7 +18,7 @@
 </head>
 <body>
 
-<!-- Ambient backdrop: two soft brass glows, pure CSS, no imagery needed -->
+<!-- Ambient backdrop: soft warm glows, pure CSS, no imagery needed -->
 <div class="ambient" aria-hidden="true">
   <div class="glow glow--a"></div>
   <div class="glow glow--b"></div>
@@ -38,23 +38,23 @@
         <circle cx="32" cy="32" r="1.6" class="disc__pin"/>
       </svg>
     </div>
-    <p class="gate__eyebrow">एक बार का ताला · प्ले जारी रहेगा</p>
+    <p class="gate__eyebrow">One-Time Lock · Continuous Playback</p>
     <h1 class="gate__title">Geetmala</h1>
-    <p class="gate__tagline">पुराने रेडियो की तरह — अपने गीत, अपनी बारी।</p>
+    <p class="gate__tagline">Classic Radio Nostalgia — Your Music, Your Rhythm.</p>
 
     <form id="gateForm" class="gate__form" autocomplete="off">
-      <label for="gatePassword" class="sr-only">पासवर्ड</label>
+      <label for="gatePassword" class="sr-only">Password</label>
       <input
         id="gatePassword"
         type="password"
         class="gate__input"
-        placeholder="पासवर्ड दर्ज करें"
+        placeholder="Enter password"
         autocomplete="current-password"
         inputmode="text"
         required
       >
       <button type="submit" class="gate__submit">
-        <span>अनलॉक करें</span>
+        <span>Unlock</span>
         <svg viewBox="0 0 20 20" class="gate__submit-icon" aria-hidden="true"><path d="M4 10h11M11 5l5 5-5 5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </form>
@@ -75,19 +75,31 @@
       </svg>
       <div>
         <p class="topbar__title">Geetmala</p>
-        <p class="topbar__subtitle" id="libraryStatus">लाइब्रेरी लोड हो रही है…</p>
+        <p class="topbar__subtitle" id="libraryStatus">Loading track library...</p>
       </div>
     </div>
-    <button id="logoutBtn" class="topbar__logout" type="button">
-      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M13 14l4-4-4-4M7 10h10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span>Logout</span>
-    </button>
+    <div class="topbar__actions">
+      <button id="themeBtn" class="topbar__theme" type="button" title="Toggle Theme (Dark / Light)" aria-label="Toggle Theme">
+        <svg viewBox="0 0 20 20" id="iconSun" class="hidden" aria-hidden="true">
+          <circle cx="10" cy="10" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M4.3 15.7l1.4-1.4M14.3 5.7l1.4-1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <svg viewBox="0 0 20 20" id="iconMoon" aria-hidden="true">
+          <path d="M17.2 11.5A7.5 7.5 0 1 1 8.5 2.8a6 6 0 1 0 8.7 8.7Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        </svg>
+        <span id="themeLabel">Light</span>
+      </button>
+      <button id="logoutBtn" class="topbar__logout" type="button">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M13 14l4-4-4-4M7 10h10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Lock</span>
+      </button>
+    </div>
   </header>
 
   <main class="layout">
 
     <!-- ---------- NOW PLAYING ---------- -->
-    <section class="panel panel--player" aria-label="अभी बज रहा गीत">
+    <section class="panel panel--player" aria-label="Now Playing Track">
       <div class="disc-wrap">
         <svg viewBox="0 0 200 200" class="disc-wrap__svg" id="vinylDisc" aria-hidden="true">
           <circle cx="100" cy="100" r="96" class="disc__body"/>
@@ -105,19 +117,19 @@
       <div class="track-meta">
         <div class="track-meta__head">
           <p class="track-meta__eyebrow" id="trackYearAlbum">—</p>
-          <button id="likeBtn" class="track-meta__like" type="button" title="पसंदीदा (L)" aria-pressed="false">
+          <button id="likeBtn" class="track-meta__like" type="button" title="Toggle Favorite (L)" aria-pressed="false">
             <svg viewBox="0 0 20 20" aria-hidden="true">
               <path d="M10 17.25s-6.25-4-7.5-7.25c-1-2.6.5-5.5 3.25-6 2.25-.4 3.75 1 4.25 1.75C10.5 5 12 3.6 14.25 4c2.75.5 4.25 3.4 3.25 6-1.25 3.25-7.5 7.25-7.5 7.25Z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round"/>
             </svg>
           </button>
         </div>
-        <h2 class="track-meta__title" id="trackTitle">कोई गीत नहीं चुना गया</h2>
-        <p class="track-meta__artist" id="trackArtist">Geetmala से एक गीत चुनें</p>
+        <h2 class="track-meta__title" id="trackTitle">No track selected</h2>
+        <p class="track-meta__artist" id="trackArtist">Select a song to start listening</p>
       </div>
 
       <div class="seek">
         <input type="range" id="seekbar" class="seek__range" min="0" max="100" value="0" step="0.1"
-               aria-label="गीत में स्थिति">
+               aria-label="Seek position">
         <div class="seek__times">
           <span id="timeCurrent">00:00</span>
           <span id="timeDuration">00:00</span>
@@ -125,26 +137,26 @@
       </div>
 
       <div class="controls">
-        <button id="shuffleBtn" class="ctrl ctrl--toggle" type="button" title="स्मार्ट शफ़ल (S)" aria-pressed="false">
+        <button id="shuffleBtn" class="ctrl ctrl--toggle" type="button" title="Smart Shuffle (S)" aria-pressed="false">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h3l7 10h4M3 15h3l2.2-3.1M14 5h3M17 5l-2.5-2.5M17 5l-2.5 2.5M17 15l-2.5 2.5M17 15l-2.5-2.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <button id="prevBtn" class="ctrl" type="button" title="पिछला गीत">
+        <button id="prevBtn" class="ctrl" type="button" title="Previous track">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 4v12M16 5 8 10l8 5V5Z" fill="currentColor"/></svg>
         </button>
-        <button id="rewindBtn" class="ctrl" type="button" title="10 सेकंड पीछे (←)">
+        <button id="rewindBtn" class="ctrl" type="button" title="Rewind 10s (←)">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10a6 6 0 1 1 2 4.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M4 6v4h4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text x="10" y="13.5" class="ctrl__tiny">10</text></svg>
         </button>
         <button id="playBtn" class="ctrl ctrl--play" type="button" title="Play / Pause (Space)">
           <svg viewBox="0 0 20 20" id="iconPlay" aria-hidden="true"><path d="M6 4.5v11l9-5.5-9-5.5Z" fill="currentColor"/></svg>
           <svg viewBox="0 0 20 20" id="iconPause" class="hidden" aria-hidden="true"><rect x="5" y="4" width="3.4" height="12" rx="1" fill="currentColor"/><rect x="11.6" y="4" width="3.4" height="12" rx="1" fill="currentColor"/></svg>
         </button>
-        <button id="forwardBtn" class="ctrl" type="button" title="10 सेकंड आगे (→)">
+        <button id="forwardBtn" class="ctrl" type="button" title="Forward 10s (→)">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 0-2 4.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M16 6v4h-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text x="6.2" y="13.5" class="ctrl__tiny">10</text></svg>
         </button>
-        <button id="nextBtn" class="ctrl" type="button" title="अगला गीत">
+        <button id="nextBtn" class="ctrl" type="button" title="Next track">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M14 4v12M4 5l8 5-8 5V5Z" fill="currentColor"/></svg>
         </button>
-        <button id="repeatBtn" class="ctrl ctrl--toggle" type="button" title="दोहराव मोड (R)" aria-pressed="false" data-mode="off">
+        <button id="repeatBtn" class="ctrl ctrl--toggle" type="button" title="Repeat Mode (R)" aria-pressed="false" data-mode="off">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8a4 4 0 0 1 4-4h6M14 4l-2.2 2.2M14 4l-2.2-2.2M16 12a4 4 0 0 1-4 4H6M6 16l2.2-2.2M6 16l2.2 2.2" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span id="repeatOneDot" class="repeat-dot hidden">1</span>
         </button>
@@ -152,15 +164,15 @@
 
       <div class="controls-row2">
         <div class="volume">
-          <button id="muteBtn" class="ctrl ctrl--flat" type="button" title="म्यूट (M)">
+          <button id="muteBtn" class="ctrl ctrl--flat" type="button" title="Mute (M)">
             <svg viewBox="0 0 20 20" id="iconVolUp" aria-hidden="true"><path d="M3 8v4h3l4 3V5L6 8H3Z" fill="currentColor"/><path d="M13 7a4 4 0 0 1 0 6" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
             <svg viewBox="0 0 20 20" id="iconVolMute" class="hidden" aria-hidden="true"><path d="M3 8v4h3l4 3V5L6 8H3Z" fill="currentColor"/><path d="m13 7 4 6M17 7l-4 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           </button>
-          <input type="range" id="volumeSlider" class="volume__range" min="0" max="1" step="0.01" value="0.8" aria-label="वॉल्यूम">
+          <input type="range" id="volumeSlider" class="volume__range" min="0" max="1" step="0.01" value="0.8" aria-label="Volume">
         </div>
         <label class="speed">
-          <span>गति</span>
-          <select id="speedSelect" aria-label="प्लेबैक स्पीड">
+          <span>Speed</span>
+          <select id="speedSelect" aria-label="Playback speed">
             <option value="0.75">0.75×</option>
             <option value="1" selected>1×</option>
             <option value="1.25">1.25×</option>
@@ -170,26 +182,26 @@
         </label>
       </div>
 
-      <p class="queue-status" id="queueStatus">0 / 0 गीत सुने गए</p>
+      <p class="queue-status" id="queueStatus">0 / 0 tracks played</p>
     </section>
 
     <!-- ---------- PLAYLIST ---------- -->
-    <section class="panel panel--list" aria-label="गीत सूची">
+    <section class="panel panel--list" aria-label="Track Library">
       <div class="list-head">
         <div class="search">
           <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="m14 14 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          <input type="search" id="searchInput" placeholder="गीत, गायक या एल्बम खोजें…" aria-label="गीत खोजें">
+          <input type="search" id="searchInput" placeholder="Search title, artist, or album..." aria-label="Search tracks">
         </div>
         <div class="list-tabs" id="listTabs">
-          <button type="button" class="tab tab--active" data-view="all">सब</button>
-          <button type="button" class="tab" data-view="favorites">पसंदीदा</button>
-          <button type="button" class="tab" data-view="top">सबसे ज़्यादा सुने</button>
+          <button type="button" class="tab tab--active" data-view="all">All Tracks</button>
+          <button type="button" class="tab" data-view="favorites">Favorites</button>
+          <button type="button" class="tab" data-view="top">Most Played</button>
         </div>
-        <span class="list-count" id="listCount">0 गीत</span>
+        <span class="list-count" id="listCount">0 tracks</span>
       </div>
       <div class="list-scroll" id="listScroll">
         <div class="list-rows" id="listRows" role="list"></div>
-        <p class="list-empty hidden" id="listEmpty">कुछ नहीं मिला। दूसरा शब्द आज़माएं।</p>
+        <p class="list-empty hidden" id="listEmpty">No matching tracks found.</p>
         <div class="list-sentinel" id="listSentinel" aria-hidden="true"></div>
       </div>
     </section>
