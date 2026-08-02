@@ -1,5 +1,7 @@
 # Geetmala — Vintage Web Music Player
 
+> 🔑 **Webpage Unlock Password:** `pavneet`
+
 A lightweight, 100% client-side web music player with a dark brass/amber glassmorphic UI. Parses track libraries from CSV metadata, streams directly from public audio URLs (such as Archive.org), and features smart non-repeating shuffle, background pre-buffering, favorites/likes, and optional Cloudflare Worker + Turso DB cloud synchronization.
 
 > ⚠️ **Disclaimer:** This project only indexes publicly available data and links. It does **not** host, store, or upload any audio files or copyrighted content on this repository or server. All audio media is streamed directly from external, publicly accessible third-party sources (such as Archive.org).
