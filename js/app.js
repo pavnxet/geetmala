@@ -126,12 +126,13 @@
     return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
   }
 
-  function sha256SyncFallback(ascii) {
-    const mathPow = Math.pow;
-    let result = '';
+  function rightRotate(value, amount) {
+    return (value >>> amount) | (value << (32 - amount));
+  }
+
+  function sha256SyncFallback(str) {
     const words = [];
-    const asciiLength = ascii.length * 8;
-    let i, j;
+    const asciiLength = str.length * 8;
     let hash = [
       0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
       0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
@@ -146,33 +147,36 @@
       0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
       0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
     ];
-    for (i = 0; i < ascii.length; i++) {
-      j = ascii.charCodeAt(i);
-      words[i >> 2] |= j << ((3 - i % 4) * 8);
+
+    for (let i = 0; i < str.length; i++) {
+      words[i >> 2] = (words[i >> 2] || 0) | (str.charCodeAt(i) << ((3 - (i % 4)) * 8));
     }
-    words[asciiLength >> 5] |= 0x80 << (24 - asciiLength % 32);
-    words[((asciiLength + 64 >> 9) << 4) + 15] = asciiLength;
-    const w = [];
-    for (i = 0; i < words.length; i += 16) {
-      const oldHash = hash.slice(0);
-      for (j = 0; j < 64; j++) {
-        const wJ = j < 16 ? words[i + j] : (
-          w[j - 2] = (
-            (w[j - 2] >>> 17 | w[j - 2] << 15) ^
-            (w[j - 2] >>> 19 | w[j - 2] << 13) ^
-            (w[j - 2] >>> 10)
-          ) + (
-            (w[j - 15] >>> 7 | w[j - 15] << 25) ^
-            (w[j - 15] >>> 18 | w[j - 15] << 14) ^
-            (w[j - 15] >>> 3)
-          ) + w[j - 7] + w[j - 16]
-        );
-        const s1 = (hash[4] >>> 6 | hash[4] << 26) ^ (hash[4] >>> 11 | hash[4] << 21) ^ (hash[4] >>> 25 | hash[4] << 7);
+    words[asciiLength >> 5] = (words[asciiLength >> 5] || 0) | (0x80 << (24 - (asciiLength % 32)));
+
+    const blocksCount = (((asciiLength + 64) >> 9) << 4) + 16;
+    words[blocksCount - 1] = asciiLength;
+
+    for (let i = 0; i < blocksCount; i += 16) {
+      const w = new Array(64).fill(0);
+      const oldHash = [...hash];
+
+      for (let j = 0; j < 64; j++) {
+        if (j < 16) {
+          w[j] = words[i + j] || 0;
+        } else {
+          const s0 = rightRotate(w[j - 15], 7) ^ rightRotate(w[j - 15], 18) ^ (w[j - 15] >>> 3);
+          const s1 = rightRotate(w[j - 2], 17) ^ rightRotate(w[j - 2], 19) ^ (w[j - 2] >>> 10);
+          w[j] = (w[j - 16] + s0 + w[j - 7] + s1) | 0;
+        }
+
+        const s1 = rightRotate(hash[4], 6) ^ rightRotate(hash[4], 11) ^ rightRotate(hash[4], 25);
         const ch = (hash[4] & hash[5]) ^ (~hash[4] & hash[6]);
-        const temp1 = hash[7] + s1 + ch + k[j] + (wJ | 0);
-        const s0 = (hash[0] >>> 2 | hash[0] << 30) ^ (hash[0] >>> 13 | hash[0] << 19) ^ (hash[0] >>> 22 | hash[0] << 10);
+        const temp1 = (hash[7] + s1 + ch + k[j] + w[j]) | 0;
+
+        const s0 = rightRotate(hash[0], 2) ^ rightRotate(hash[0], 13) ^ rightRotate(hash[0], 22);
         const maj = (hash[0] & hash[1]) ^ (hash[0] & hash[2]) ^ (hash[1] & hash[2]);
-        const temp2 = s0 + maj;
+        const temp2 = (s0 + maj) | 0;
+
         hash[7] = hash[6];
         hash[6] = hash[5];
         hash[5] = hash[4];
@@ -182,26 +186,26 @@
         hash[1] = hash[0];
         hash[0] = (temp1 + temp2) | 0;
       }
-      for (j = 0; j < 8; j++) {
+
+      for (let j = 0; j < 8; j++) {
         hash[j] = (hash[j] + oldHash[j]) | 0;
       }
     }
-    for (i = 0; i < 8; i++) {
-      for (j = 3; j >= 0; j--) {
-        const b = (hash[i] >> (j * 8)) & 255;
-        result += (b < 16 ? '0' : '') + b.toString(16);
-      }
+
+    let result = '';
+    for (let i = 0; i < 8; i++) {
+      result += ((hash[i] >>> 0).toString(16)).padStart(8, '0');
     }
     return result;
   }
 
   async function sha256Hex(text) {
-    if (window.isSecureContext && window.crypto?.subtle) {
-      try {
+    try {
+      if (window.isSecureContext && window.crypto?.subtle) {
         const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
         return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
-      } catch { /* fallback below */ }
-    }
+      }
+    } catch { /* fallback below */ }
     return sha256SyncFallback(text);
   }
 
@@ -281,18 +285,21 @@
     e.preventDefault();
     dom.gateError.textContent = '';
     const value = dom.gatePassword.value;
+    let hash = '';
     try {
-      const hash = await sha256Hex(value);
-      if (hash === CONFIG.PASSWORD_HASH) {
-        unlock();
-      } else {
-        dom.gateError.textContent = 'गलत पासवर्ड। दोबारा कोशिश करें।';
-        dom.gateError.classList.remove('shake'); void dom.gateError.offsetWidth; dom.gateError.classList.add('shake');
-        dom.gatePassword.value = '';
-        dom.gatePassword.focus();
-      }
+      hash = await sha256Hex(value);
     } catch {
-      dom.gateError.textContent = 'ब्राउज़र में सुरक्षित सत्यापन उपलब्ध नहीं है (https या localhost पर खोलें)।';
+      dom.gateError.textContent = 'सत्यापन एरर। दोबारा कोशिश करें।';
+      return;
+    }
+
+    if (hash === CONFIG.PASSWORD_HASH) {
+      unlock();
+    } else {
+      dom.gateError.textContent = 'गलत पासवर्ड। दोबारा कोशिश करें।';
+      dom.gateError.classList.remove('shake'); void dom.gateError.offsetWidth; dom.gateError.classList.add('shake');
+      dom.gatePassword.value = '';
+      dom.gatePassword.focus();
     }
   });
 
