@@ -9,7 +9,7 @@ async function turso(env, statements) {
   const token  = env.TURSO_AUTH_TOKEN  || '';
 
   if (!rawUrl) throw new Error('TURSO_DATABASE_URL not set');
-  if (!token)  throw new Error('TURSO_AUTH_TOKEN not set');
+  if (!token)  throw new Error('TURSO_AUTH_TOKEN not set. Keys in env: [' + Object.keys(env).join(', ') + ']');
 
   // Convert libsql:// to https://
   const baseUrl = rawUrl
