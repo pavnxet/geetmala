@@ -1,10 +1,12 @@
 -- Turso database schema for Geetmala backend
 
--- One row per browser/device
+-- One row per browser/device / user account
 CREATE TABLE IF NOT EXISTS devices (
   device_id     TEXT PRIMARY KEY,
+  token_hash    TEXT,
   created_at    INTEGER NOT NULL,
-  last_seen_at  INTEGER NOT NULL
+  last_seen_at  INTEGER NOT NULL,
+  updated_at    INTEGER
 );
 
 -- Liked songs

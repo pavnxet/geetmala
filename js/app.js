@@ -15,7 +15,7 @@
     PASSWORD_HASH: '74d332f35f91c3fa8261160a0b14bb1a3b1d745fa2df8a5476b96ef873013235',
     CSV_PATH: 'data/songs.csv',
     PAGE_SIZE: 80,
-    AUTOSAVE_MS: 3000,
+    AUTOSAVE_MS: 15000,
     SEEK_STEP_KEY: 5,      // keyboard ← / → per the spec
     SEEK_STEP_BTN: 10,     // ⏪ / ⏩ buttons per the spec
     VOLUME_STEP: 0.05,
@@ -33,7 +33,9 @@
     REPEAT: 'geetmala_repeat_mode',
     SPEED: 'geetmala_speed',
     DEVICE_ID: 'geetmala_device_id',
+    DEVICE_TOKEN: 'geetmala_device_token',
     FAVORITES: 'geetmala_favorites',
+    FAVORITES_UPDATED: 'geetmala_fav_updated',
     TRACK_STATS: 'geetmala_track_stats',
     THEME: 'geetmala_theme',
   };
@@ -71,9 +73,12 @@
 
   const nextAudio = new Audio();
   nextAudio.preload = 'auto';
+  nextAudio.muted = true;
+  nextAudio.volume = 0;
 
   let nextPreloadedTrack = null;
   let currentTrackFullyLoaded = false;
+  let consecutiveAudioFailures = 0;
 
   /* ------------------------------------------------------------------ */
   /* 3. STATE                                                           */
@@ -96,6 +101,7 @@
     lastSaveAt: 0,
 
     favorites: new Set(),   // track IDs favorited
+    favoritesUpdatedAt: 0,  // timestamp of local favorites changes
     trackStats: new Map(),  // track_id -> { play_count, total_seconds }
     currentView: 'all',     // 'all' | 'favorites' | 'top'
     sessionListenedSec: 0,  // listened seconds accumulator for active track
@@ -120,6 +126,21 @@
     const parts = String(raw).split(':').map(Number);
     if (parts.some(isNaN)) return 0;
     return parts.reduce((acc, p) => acc * 60 + p, 0);
+  }
+
+  function isValidAudioUrl(u) {
+    if (!u || typeof u !== 'string') return false;
+    try {
+      const parsed = new URL(u, window.location.href);
+      return parsed.protocol === 'https:' || (parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'));
+    } catch {
+      return false;
+    }
+  }
+
+  function sanitizeString(str) {
+    if (!str) return '';
+    return String(str).replace(/[<>]/g, '').trim();
   }
 
   function debounce(fn, ms) {
@@ -222,14 +243,28 @@
     try { localStorage.removeItem(key); } catch { /* ignore */ }
   }
 
+  function safeJsonParse(key, fallback) {
+    try {
+      const raw = safeGet(key);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      return parsed !== null && parsed !== undefined ? parsed : fallback;
+    } catch (e) {
+      safeRemove(key);
+      return fallback;
+    }
+  }
+
   function getDeviceId() {
     try {
       const params = new URLSearchParams(window.location.search);
       const urlUser = (params.get('user') || params.get('user_id') || '').trim();
+      const urlToken = (params.get('token') || '').trim();
       if (urlUser) {
         const cleanUrlUser = urlUser.replace(/[^a-zA-Z0-9_.-]/g, '');
         if (cleanUrlUser) {
           safeSet(KEYS.DEVICE_ID, cleanUrlUser);
+          if (urlToken) safeSet(KEYS.DEVICE_TOKEN, urlToken);
         }
       }
     } catch { /* ignore */ }
@@ -239,8 +274,17 @@
       id = 'user_' + Math.random().toString(36).substring(2, 9);
       safeSet(KEYS.DEVICE_ID, id);
     }
+    let token = safeGet(KEYS.DEVICE_TOKEN);
+    if (!token) {
+      token = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'tok_' + Math.random().toString(36).substring(2, 12) + Date.now().toString(36);
+      safeSet(KEYS.DEVICE_TOKEN, token);
+    }
     updateUserLabelUI(id);
     return id;
+  }
+
+  function getDeviceToken() {
+    return safeGet(KEYS.DEVICE_TOKEN) || '';
   }
 
   function updateUserLabelUI(id) {
@@ -284,13 +328,18 @@
   async function apiCall(path, options = {}) {
     if (!CONFIG.API_BASE) return null;
     try {
+      const headers = {
+        'Content-Type': 'application/json',
+        'X-Geetmala-Key': CONFIG.API_KEY,
+        ...(options.headers || {}),
+      };
+      const token = getDeviceToken();
+      if (token) {
+        headers['X-Geetmala-Token'] = token;
+      }
       const res = await fetch(CONFIG.API_BASE + path, {
         ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Geetmala-Key': CONFIG.API_KEY,
-          ...(options.headers || {}),
-        },
+        headers,
       });
       if (!res.ok) return null;
       return await res.json();
@@ -339,14 +388,14 @@
       complete: (results) => {
         const rows = results.data || [];
         state.allTracks = rows
-          .filter((r) => r.title && r.url)
+          .filter((r) => r.title && r.url && isValidAudioUrl(r.url.trim()))
           .map((r, i) => ({
-            id: String(r.id ?? i),
-            title: r.title.trim(),
-            album: (r.album || '').trim(),
-            artist: (r.artist || '').trim(),
-            year: (r.year || '').trim(),
-            duration: (r.duration || '').trim(),
+            id: sanitizeString(r.id != null ? String(r.id) : String(i)),
+            title: sanitizeString(r.title),
+            album: sanitizeString(r.album),
+            artist: sanitizeString(r.artist),
+            year: sanitizeString(r.year),
+            duration: sanitizeString(r.duration),
             durationSeconds: parseDurationToSeconds(r.duration),
             url: r.url.trim(),
           }));
@@ -416,12 +465,8 @@
   }
 
   function restorePlayedIds() {
-    try {
-      const arr = JSON.parse(safeGet(KEYS.PLAYED) || '[]');
-      state.playedIds = new Set(arr.filter((id) => state.byId.has(id)));
-    } catch {
-      state.playedIds = new Set();
-    }
+    const arr = safeJsonParse(KEYS.PLAYED, []);
+    state.playedIds = new Set(Array.isArray(arr) ? arr.filter((id) => state.byId.has(id)) : []);
     updateQueueStatus();
   }
 
@@ -433,17 +478,20 @@
     return KEYS.FAVORITES + '_' + getDeviceId();
   }
 
+  function getFavoritesUpdatedKey() {
+    return KEYS.FAVORITES_UPDATED + '_' + getDeviceId();
+  }
+
   function restoreFavorites() {
-    try {
-      const arr = JSON.parse(safeGet(getFavoritesKey()) || safeGet(KEYS.FAVORITES) || '[]');
-      state.favorites = new Set(arr.filter((id) => state.byId.has(id)));
-    } catch {
-      state.favorites = new Set();
-    }
+    const arr = safeJsonParse(getFavoritesKey(), safeJsonParse(KEYS.FAVORITES, []));
+    state.favorites = new Set(Array.isArray(arr) ? arr.filter((id) => state.byId.has(id)) : []);
+    state.favoritesUpdatedAt = Number(safeGet(getFavoritesUpdatedKey())) || 0;
   }
 
   function persistFavorites() {
     safeSet(getFavoritesKey(), JSON.stringify([...state.favorites]));
+    state.favoritesUpdatedAt = Date.now();
+    safeSet(getFavoritesUpdatedKey(), String(state.favoritesUpdatedAt));
   }
 
   function toggleFavorite(trackId) {
@@ -473,12 +521,8 @@
   }
 
   function restoreTrackStats() {
-    try {
-      const obj = JSON.parse(safeGet(KEYS.TRACK_STATS) || '{}');
-      state.trackStats = new Map(Object.entries(obj));
-    } catch {
-      state.trackStats = new Map();
-    }
+    const obj = safeJsonParse(KEYS.TRACK_STATS, {});
+    state.trackStats = new Map(typeof obj === 'object' && obj ? Object.entries(obj) : []);
   }
 
   function persistTrackStats() {
@@ -517,8 +561,16 @@
   async function syncBackendState() {
     const data = await apiCall(`/api/state?device_id=${getDeviceId()}`);
     if (!data) return;
+
     if (Array.isArray(data.favorites)) {
-      state.favorites = new Set(data.favorites.filter((id) => state.byId.has(id)));
+      const remoteFavs = new Set(data.favorites.filter((id) => state.byId.has(id)));
+      const remoteUpdatedAt = data.last?.updated_at || 0;
+      // Merge rule: If remote has newer state (+ 5s buffer), union favorites to never drop offline likes
+      if (remoteUpdatedAt > state.favoritesUpdatedAt + 5000) {
+        remoteFavs.forEach((id) => state.favorites.add(id));
+      } else if (state.favorites.size === 0 && remoteFavs.size > 0) {
+        state.favorites = remoteFavs;
+      }
       persistFavorites();
       updateLikeUI();
       updateAllRowLikes();
@@ -529,6 +581,7 @@
         if (item.track_id) {
           const stat = state.trackStats.get(item.track_id) || { play_count: 0, total_seconds: 0 };
           stat.play_count = Math.max(stat.play_count, item.play_count || 0);
+          stat.total_seconds = Math.max(stat.total_seconds, item.total_seconds_listened || 0);
           state.trackStats.set(item.track_id, stat);
         }
       });
@@ -564,8 +617,13 @@
   /* ------------------------------------------------------------------ */
   /* 8. QUEUE / NO-REPEAT SHUFFLE LOGIC                                  */
   /* ------------------------------------------------------------------ */
+  function getActiveTrackList() {
+    return state.filtered && state.filtered.length > 0 ? state.filtered : state.allTracks;
+  }
+
   function remainingQueue() {
-    return state.allTracks.filter((t) => !state.playedIds.has(t.id));
+    const list = getActiveTrackList();
+    return list.filter((t) => !state.playedIds.has(t.id));
   }
 
   function markPlayed(track) {
@@ -575,18 +633,23 @@
   }
 
   function updateQueueStatus() {
-    dom.queueStatus.textContent = `${state.playedIds.size} / ${state.allTracks.length} tracks played`;
+    const total = getActiveTrackList().length;
+    dom.queueStatus.textContent = `${state.playedIds.size} / ${total} tracks played`;
   }
 
   function pickRandomUnplayed({ peek = false } = {}) {
+    const activeList = getActiveTrackList();
+    if (!activeList.length) return null;
+
     let pool = remainingQueue();
     if (pool.length === 0) {
-      if (peek) return state.allTracks[0] || null;
-      state.playedIds.clear();
+      if (peek) return activeList[0] || null;
+      // Reset only played IDs for this view/pool
+      activeList.forEach((t) => state.playedIds.delete(t.id));
       persistPlayedIds();
       updateQueueStatus();
-      showToast({ message: 'You have listened to all tracks! Resetting play queue.' });
-      pool = state.allTracks;
+      showToast({ message: 'You have listened to all tracks in this view! Resetting queue.' });
+      pool = activeList;
     }
     // Don't hand back the track that's currently playing if there's a choice.
     const choices = pool.length > 1 && state.currentTrack
@@ -596,7 +659,7 @@
   }
 
   function pickNextSequential() {
-    const list = state.allTracks;
+    const list = getActiveTrackList();
     if (!list.length) return null;
     const idx = state.currentTrack ? list.findIndex((t) => t.id === state.currentTrack.id) : -1;
     if (idx === -1) return list[0];
@@ -605,7 +668,7 @@
   }
 
   function pickPrevSequential() {
-    const list = state.allTracks;
+    const list = getActiveTrackList();
     if (!list.length) return null;
     const idx = state.currentTrack ? list.findIndex((t) => t.id === state.currentTrack.id) : -1;
     if (idx <= 0) return state.repeatMode === 'all' ? list[list.length - 1] : list[0];
@@ -616,12 +679,13 @@
   /* PRELOAD ENGINE                                                     */
   /* ------------------------------------------------------------------ */
   function peekNextTrack() {
-    if (!state.allTracks.length) return null;
-    if (state.historyPointer < state.history.length - 1) {
-      return state.byId.get(state.history[state.historyPointer + 1]);
-    }
+    const list = getActiveTrackList();
+    if (!list.length) return null;
     if (state.repeatMode === 'one') {
       return state.currentTrack;
+    }
+    if (state.historyPointer < state.history.length - 1) {
+      return state.byId.get(state.history[state.historyPointer + 1]);
     }
     return state.shuffle ? pickRandomUnplayed({ peek: true }) : pickNextSequential();
   }
@@ -795,6 +859,7 @@
   audio.addEventListener('progress', checkCurrentTrackFullyLoaded);
 
   audio.addEventListener('play', () => {
+    consecutiveAudioFailures = 0;
     state.isPlaying = true;
     dom.iconPlay.classList.add('hidden');
     dom.iconPause.classList.remove('hidden');
@@ -813,6 +878,21 @@
     persistPlaybackPosition();
     updateActiveRowIndicator();
     navigator.mediaSession && (navigator.mediaSession.playbackState = 'paused');
+  });
+
+  audio.addEventListener('error', (e) => {
+    console.error('Audio playback error:', e);
+    consecutiveAudioFailures++;
+    if (consecutiveAudioFailures >= 3) {
+      showToast({ message: 'Unable to stream audio tracks — please check your internet connection.', timeout: 6000 });
+      audio.pause();
+      return;
+    }
+    const failedTitle = state.currentTrack ? state.currentTrack.title : 'Track';
+    showToast({ message: `Failed to load <strong>${escapeHtml(failedTitle)}</strong>. Skipping...`, timeout: 3000 });
+    setTimeout(() => {
+      goNext({ auto: true });
+    }, 2000);
   });
 
   audio.addEventListener('loadedmetadata', () => {
@@ -857,6 +937,7 @@
   });
 
   audio.addEventListener('ended', () => {
+    consecutiveAudioFailures = 0;
     if (state.currentTrack) {
       markPlayed(state.currentTrack);
       flushPlayEvent({ completed: true, source: 'auto' });
@@ -922,9 +1003,11 @@
       baseList = state.allTracks.filter((t) => state.favorites.has(t.id));
     } else if (state.currentView === 'top') {
       baseList = [...state.allTracks].sort((a, b) => {
-        const countA = state.trackStats.get(a.id)?.play_count || 0;
-        const countB = state.trackStats.get(b.id)?.play_count || 0;
-        return countB - countA;
+        const statA = state.trackStats.get(a.id) || { play_count: 0, total_seconds: 0 };
+        const statB = state.trackStats.get(b.id) || { play_count: 0, total_seconds: 0 };
+        const secDiff = (statB.total_seconds || 0) - (statA.total_seconds || 0);
+        if (Math.abs(secDiff) >= 5) return secDiff;
+        return (statB.play_count || 0) - (statA.play_count || 0);
       });
     }
 
@@ -1062,7 +1145,12 @@
     if (!('mediaSession' in navigator) || !state.currentTrack) return;
     const t = state.currentTrack;
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: t.title, artist: t.artist || 'Geetmala', album: t.album || 'Geetmala',
+      title: t.title,
+      artist: t.artist || 'Geetmala',
+      album: t.album || 'Geetmala',
+      artwork: [
+        { src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Ccircle cx="50" cy="50" r="46" fill="%230d0a08"/%3E%3Ccircle cx="50" cy="50" r="46" fill="none" stroke="%23e8b563" stroke-width="2"/%3E%3Ccircle cx="50" cy="50" r="10" fill="%23e8b563"/%3E%3C/svg%3E', sizes: '96x96', type: 'image/svg+xml' }
+      ]
     });
   }
 
@@ -1081,8 +1169,15 @@
     navigator.mediaSession.setActionHandler('pause', () => audio.pause());
     navigator.mediaSession.setActionHandler('previoustrack', goPrev);
     navigator.mediaSession.setActionHandler('nexttrack', () => goNext());
-    navigator.mediaSession.setActionHandler('seekbackward', () => seekBy(-CONFIG.SEEK_STEP_BTN));
-    navigator.mediaSession.setActionHandler('seekforward', () => seekBy(CONFIG.SEEK_STEP_BTN));
+    navigator.mediaSession.setActionHandler('seekbackward', (details) => seekBy(-(details.seekOffset || CONFIG.SEEK_STEP_BTN)));
+    navigator.mediaSession.setActionHandler('seekforward', (details) => seekBy(details.seekOffset || CONFIG.SEEK_STEP_BTN));
+    try {
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (details.seekTime != null && isFinite(details.seekTime)) {
+          audio.currentTime = Math.min(Math.max(0, details.seekTime), audio.duration || Infinity);
+        }
+      });
+    } catch { /* unsupported in older browsers */ }
   }
 
   /* ------------------------------------------------------------------ */
@@ -1119,7 +1214,8 @@
   /* ------------------------------------------------------------------ */
   document.addEventListener('keydown', (e) => {
     const tag = document.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+    if (dom.userModal && !dom.userModal.classList.contains('hidden')) return;
     if (dom.app.classList.contains('hidden')) return;
 
     switch (e.key) {
@@ -1158,10 +1254,12 @@
   if (dom.copyUserLinkBtn) {
     dom.copyUserLinkBtn.addEventListener('click', () => {
       const currentId = getDeviceId();
+      const token = getDeviceToken();
       const url = new URL(window.location.href);
       url.searchParams.set('user', currentId);
+      if (token) url.searchParams.set('token', token);
       navigator.clipboard.writeText(url.toString()).then(() => {
-        showToast({ message: 'Profile link copied to clipboard!', timeout: 3000 });
+        showToast({ message: 'Profile link with sync token copied!', timeout: 3000 });
       }).catch(() => {
         showToast({ message: `Profile URL: ${url.toString()}`, timeout: 6000 });
       });

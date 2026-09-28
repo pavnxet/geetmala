@@ -82,19 +82,48 @@ function toTursoArg(v) {
 }
 
 // ── CORS + JSON helpers ──────────────────────────────────────
-function corsHeaders(env) {
+const ALLOWED_ORIGIN_PATTERNS = [
+  /^https:\/\/pavnxet\.github\.io$/,
+  /^http:\/\/localhost(:\d+)?$/,
+  /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+];
+
+function getCorsOrigin(request, env) {
+  const origin = request.headers.get('Origin');
+  if (!origin) return env.ALLOWED_ORIGIN || '*';
+  if (env.ALLOWED_ORIGIN && env.ALLOWED_ORIGIN !== '*') {
+    if (origin === env.ALLOWED_ORIGIN) return origin;
+  }
+  for (const pattern of ALLOWED_ORIGIN_PATTERNS) {
+    if (pattern.test(origin)) return origin;
+  }
+  return env.ALLOWED_ORIGIN || '*';
+}
+
+function corsHeaders(request, env) {
+  const origin = getCorsOrigin(request, env);
   return {
-    'Access-Control-Allow-Origin':  env.ALLOWED_ORIGIN || '*',
+    'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Geetmala-Key',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Geetmala-Key, X-Geetmala-Token',
   };
 }
 
-function jsonResp(data, status, env) {
+function jsonResp(data, status, env, request) {
   return new Response(JSON.stringify(data), {
     status: status,
-    headers: Object.assign({ 'Content-Type': 'application/json' }, corsHeaders(env)),
+    headers: Object.assign({ 'Content-Type': 'application/json' }, request ? corsHeaders(request, env) : {}),
   });
+}
+
+async function hashToken(token) {
+  if (!token) return '';
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function isValidDeviceId(id) {
+  return typeof id === 'string' && /^[a-zA-Z0-9_-]{3,64}$/.test(id);
 }
 
 // ── Main Worker ──────────────────────────────────────────────
@@ -103,12 +132,12 @@ export default {
     const env = normalizeEnv(rawEnv);
     // CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders(env) });
+      return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     }
 
     // API key guard
     if (env.API_KEY && request.headers.get('X-Geetmala-Key') !== env.API_KEY) {
-      return jsonResp({ error: 'unauthorized' }, 401, env);
+      return jsonResp({ error: 'unauthorized' }, 401, env, request);
     }
 
     const url = new URL(request.url);
@@ -121,10 +150,62 @@ export default {
         try { body = await request.json(); } catch (e) { body = {}; }
       }
 
-      const deviceId = url.searchParams.get('device_id') || body.device_id || null;
+      const rawDeviceId = url.searchParams.get('device_id') || body.device_id || null;
+      const deviceId = rawDeviceId ? String(rawDeviceId).trim() : null;
 
-      // Register / heartbeat device
-      if (deviceId) {
+      if (deviceId && !isValidDeviceId(deviceId)) {
+        return jsonResp({ error: 'invalid device_id format' }, 400, env, request);
+      }
+
+      const clientToken = url.searchParams.get('token') || body.token || request.headers.get('X-Geetmala-Token') || null;
+
+      // Token authentication for write operations on a device / user profile:
+      // - First time device is created: save hash of clientToken if provided.
+      // - If device exists and has a token_hash, any write operation (POST /api/favorite, POST /api/state-sync)
+      //   MUST present a matching token.
+      async function verifyWriteAuth(did) {
+        if (!did) return { ok: false, error: 'missing device_id', status: 400 };
+        try {
+          const res = await turso(env, [{
+            sql: 'SELECT token_hash FROM devices WHERE device_id = ?',
+            args: [did],
+          }]);
+          const existing = res[0].rows && res[0].rows[0];
+          if (!existing) {
+            // New user registration with token
+            const tokenHash = clientToken ? await hashToken(clientToken) : null;
+            await turso(env, [{
+              sql: 'INSERT INTO devices (device_id, token_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?)',
+              args: [did, tokenHash, now, now],
+            }]);
+            return { ok: true };
+          }
+
+          if (existing.token_hash) {
+            if (!clientToken) {
+              return { ok: false, error: 'unauthorized: write token required', status: 401 };
+            }
+            const testHash = await hashToken(clientToken);
+            if (testHash !== existing.token_hash) {
+              return { ok: false, error: 'forbidden: invalid token', status: 403 };
+            }
+          } else if (clientToken) {
+            // Claim unowned/unsecured existing device by setting token
+            const tokenHash = await hashToken(clientToken);
+            await turso(env, [{
+              sql: 'UPDATE devices SET token_hash = ? WHERE device_id = ?',
+              args: [tokenHash, did],
+            }]);
+          }
+          return { ok: true };
+        } catch (e) {
+          console.warn('verifyWriteAuth error: ' + String(e));
+          return { ok: true }; // Fallback to avoid complete service lockout on transient Turso error
+        }
+      }
+
+      // Register / heartbeat device for read/public routes
+      if (deviceId && request.method === 'GET') {
         try {
           await turso(env, [{
             sql: 'INSERT INTO devices (device_id, created_at, last_seen_at) VALUES (?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET last_seen_at = excluded.last_seen_at',
@@ -140,8 +221,8 @@ export default {
         const did = deviceId || '';
         const results = await turso(env, [
           { sql: 'SELECT track_id FROM favorites WHERE device_id = ? ORDER BY favorited_at DESC', args: [did] },
-          { sql: 'SELECT last_track_id, last_position_sec, shuffle_enabled, repeat_mode, volume, playback_speed FROM device_state WHERE device_id = ?', args: [did] },
-          { sql: 'SELECT track_id, play_count, total_seconds_listened FROM track_stats ORDER BY play_count DESC LIMIT 20', args: [] },
+          { sql: 'SELECT last_track_id, last_position_sec, shuffle_enabled, repeat_mode, volume, playback_speed, updated_at FROM device_state WHERE device_id = ?', args: [did] },
+          { sql: 'SELECT track_id, play_count, total_seconds_listened FROM track_stats ORDER BY total_seconds_listened DESC, play_count DESC LIMIT 20', args: [] },
           { sql: 'SELECT track_id, played_at FROM play_events WHERE device_id = ? ORDER BY played_at DESC LIMIT 20', args: [did] },
         ]);
         return jsonResp({
@@ -149,32 +230,37 @@ export default {
           last:      (results[1].rows && results[1].rows[0]) || null,
           top:       results[2].rows || [],
           recent:    results[3].rows || [],
-        }, 200, env);
+        }, 200, env, request);
       }
 
       // ── POST /api/favorite ──────────────────────────────────
       if (url.pathname === '/api/favorite' && request.method === 'POST') {
         if (!body.device_id || !body.track_id) {
-          return jsonResp({ error: 'missing device_id or track_id' }, 400, env);
+          return jsonResp({ error: 'missing device_id or track_id' }, 400, env, request);
         }
+        const auth = await verifyWriteAuth(body.device_id);
+        if (!auth.ok) {
+          return jsonResp({ error: auth.error }, auth.status, env, request);
+        }
+
         if (body.favorite) {
           await turso(env, [{
             sql: 'INSERT OR IGNORE INTO favorites (device_id, track_id, favorited_at) VALUES (?, ?, ?)',
-            args: [body.device_id, body.track_id, now],
+            args: [body.device_id, String(body.track_id), now],
           }]);
         } else {
           await turso(env, [{
             sql: 'DELETE FROM favorites WHERE device_id = ? AND track_id = ?',
-            args: [body.device_id, body.track_id],
+            args: [body.device_id, String(body.track_id)],
           }]);
         }
-        return jsonResp({ success: true }, 200, env);
+        return jsonResp({ success: true, updated_at: now }, 200, env, request);
       }
 
       // ── POST /api/play-event ────────────────────────────────
       if (url.pathname === '/api/play-event' && request.method === 'POST') {
         if (!body.device_id || !body.track_id) {
-          return jsonResp({ error: 'missing device_id or track_id' }, 400, env);
+          return jsonResp({ error: 'missing device_id or track_id' }, 400, env, request);
         }
         const playedSec  = Math.max(0, Number(body.played_seconds) || 0);
         const completedN = body.completed ? 1 : 0;
@@ -182,35 +268,40 @@ export default {
 
         const stmts = [{
           sql: 'INSERT INTO play_events (device_id, track_id, played_at, played_seconds, completed, source) VALUES (?, ?, ?, ?, ?, ?)',
-          args: [body.device_id, body.track_id, now, playedSec, completedN, src],
+          args: [body.device_id, String(body.track_id), now, playedSec, completedN, src],
         }];
 
         if (playedSec >= 5) {
           stmts.push({
             sql: 'INSERT INTO track_stats (track_id, play_count, skip_count, total_seconds_listened, last_played_at) VALUES (?, 1, 0, ?, ?) ON CONFLICT(track_id) DO UPDATE SET play_count = play_count + 1, total_seconds_listened = total_seconds_listened + excluded.total_seconds_listened, last_played_at = excluded.last_played_at',
-            args: [body.track_id, playedSec, now],
+            args: [String(body.track_id), playedSec, now],
           });
         } else {
           stmts.push({
             sql: 'INSERT INTO track_stats (track_id, play_count, skip_count, total_seconds_listened, last_played_at) VALUES (?, 0, 1, 0, ?) ON CONFLICT(track_id) DO UPDATE SET skip_count = skip_count + 1, last_played_at = excluded.last_played_at',
-            args: [body.track_id, now],
+            args: [String(body.track_id), now],
           });
         }
 
         stmts.push({
           sql: 'INSERT INTO device_state (device_id, last_track_id, updated_at) VALUES (?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET last_track_id = excluded.last_track_id, updated_at = excluded.updated_at',
-          args: [body.device_id, body.track_id, now],
+          args: [body.device_id, String(body.track_id), now],
         });
 
         await turso(env, stmts);
-        return jsonResp({ success: true }, 200, env);
+        return jsonResp({ success: true }, 200, env, request);
       }
 
       // ── POST /api/state-sync ────────────────────────────────
       if (url.pathname === '/api/state-sync' && request.method === 'POST') {
         if (!body.device_id) {
-          return jsonResp({ error: 'missing device_id' }, 400, env);
+          return jsonResp({ error: 'missing device_id' }, 400, env, request);
         }
+        const auth = await verifyWriteAuth(body.device_id);
+        if (!auth.ok) {
+          return jsonResp({ error: auth.error }, auth.status, env, request);
+        }
+
         const lastTrackId    = body.last_track_id    != null ? String(body.last_track_id)      : null;
         const lastPosSec     = body.last_position_sec != null ? Number(body.last_position_sec)  : null;
         const shuffleEnabled = body.shuffle_enabled   != null ? (body.shuffle_enabled ? 1 : 0)  : 0;
@@ -222,24 +313,24 @@ export default {
           sql: 'INSERT INTO device_state (device_id, last_track_id, last_position_sec, shuffle_enabled, repeat_mode, volume, playback_speed, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET last_track_id = COALESCE(excluded.last_track_id, device_state.last_track_id), last_position_sec = COALESCE(excluded.last_position_sec, device_state.last_position_sec), shuffle_enabled = excluded.shuffle_enabled, repeat_mode = excluded.repeat_mode, volume = excluded.volume, playback_speed = excluded.playback_speed, updated_at = excluded.updated_at',
           args: [body.device_id, lastTrackId, lastPosSec, shuffleEnabled, repeatMode, volume, playbackSpeed, now],
         }]);
-        return jsonResp({ success: true }, 200, env);
+        return jsonResp({ success: true, updated_at: now }, 200, env, request);
       }
 
       // ── GET /api/most-played ────────────────────────────────
       if (url.pathname === '/api/most-played' && request.method === 'GET') {
         const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 20));
         const results = await turso(env, [{
-          sql: 'SELECT track_id, play_count, total_seconds_listened FROM track_stats ORDER BY play_count DESC LIMIT ?',
+          sql: 'SELECT track_id, play_count, total_seconds_listened FROM track_stats ORDER BY total_seconds_listened DESC, play_count DESC LIMIT ?',
           args: [limit],
         }]);
-        return jsonResp({ top: results[0].rows || [] }, 200, env);
+        return jsonResp({ top: results[0].rows || [] }, 200, env, request);
       }
 
-      return jsonResp({ error: 'not found' }, 404, env);
+      return jsonResp({ error: 'not found' }, 404, env, request);
 
     } catch (err) {
       console.error('Worker error: ' + String(err));
-      return jsonResp({ error: 'server error', detail: String(err) }, 500, env);
+      return jsonResp({ error: 'server error', detail: String(err) }, 500, env, request);
     }
   },
 };
